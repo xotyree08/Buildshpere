@@ -258,3 +258,30 @@ export interface RenderAsset {
   width: number;
   height: number;
 }
+
+// ---------- Site constraints (BS-LAND-004) ----------
+
+export type ConstraintKind =
+  | "zoning"
+  | "easement"
+  | "flood"
+  | "hoa"
+  | "tree"
+  | "soil"
+  | "utility"
+  | "access"
+  | "other";
+
+export type ConstraintSeverity = "info" | "caution" | "blocking";
+
+/** User-entered site constraint — the register keeps history via status,
+ * and everything is labeled by its source (no pretended parcel data). */
+export interface SiteConstraint {
+  id: string;
+  kind: ConstraintKind;
+  severity: ConstraintSeverity;
+  note: string;
+  status: "open" | "resolved";
+  /** Only 'user-entered' exists today; parcel-data sources arrive with LandSphere. */
+  source: "user-entered";
+}
