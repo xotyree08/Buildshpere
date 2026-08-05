@@ -285,6 +285,35 @@ export default function ProjectPage() {
         review comes in Phase 2.
       </p>
 
+      {entry.inspiration && (
+        <div className="card" style={{ marginBottom: "1.5rem", display: "flex", gap: "1rem" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={entry.inspiration.photoDataUrl}
+            alt="Inspiration home"
+            style={{ width: 140, borderRadius: 8, border: "1px solid var(--line)", alignSelf: "flex-start" }}
+          />
+          <div>
+            <h2 style={{ marginTop: 0 }}>Inspiration</h2>
+            {entry.inspiration.analysis?.styleKey ? (
+              <p style={{ margin: 0 }}>
+                Matched <strong>{styleInfo(entry.inspiration.analysis.styleKey)?.label}</strong> (
+                {Math.round(entry.inspiration.analysis.confidence * 100)}%) ·{" "}
+                {entry.inspiration.analysis.levels === 2 ? "two-story" : "single-story"}
+                {entry.inspiration.analysis.notes && (
+                  <>
+                    <br />
+                    <span style={{ color: "var(--muted)" }}>{entry.inspiration.analysis.notes}</span>
+                  </>
+                )}
+              </p>
+            ) : (
+              <p style={{ margin: 0, color: "var(--muted)" }}>Kept as reference for the design.</p>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="card" style={{ marginBottom: "1.5rem" }}>
         <h2>Interior finishes</h2>
         <p>Change a finish and every concept re-prices instantly.</p>

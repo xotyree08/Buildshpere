@@ -41,3 +41,15 @@ like the Postgres schema in docs/MVP_PHASE1.md. The engines are pure and the
 API routes stateless, so introducing `DATABASE_URL` + a server store swaps the
 persistence layer without touching engine or UI logic. Accounts arrive with
 that swap; until then the app is single-device and honest about it.
+
+## ADR-010: Inspiration photos — vision model proposes, catalogs clamp — accepted
+
+Customers can upload a photo of a home they love. A vision-capable Claude model
+(via the official Anthropic SDK, structured JSON output) proposes architectural
+attributes: best-match style from our 28-style catalog, stories, visible
+exterior features, confidence. Deterministic validation clamps every field to
+our domain before anything downstream sees it — an unknown style becomes null,
+never a new style. The analysis seeds the design brief (style pre-selected,
+editable); geometry, checks, and pricing remain exclusively deterministic
+(ADR-007). Without an API key the feature degrades gracefully: the photo is
+kept as project inspiration and the customer picks a style manually.

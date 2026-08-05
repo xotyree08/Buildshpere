@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { InspirationUpload, type InspirationResult } from "@/components/InspirationUpload";
 import { DEFAULT_FINISHES, FINISH_CATEGORIES, type FinishSelections } from "@/lib/catalog/materials";
 import { styleInfo, stylesByCategory } from "@/lib/catalog/styles";
 import { runDesignLoop } from "@/lib/engine/loop";
@@ -30,6 +31,12 @@ export default function NewProjectPage() {
   const [garageBays, setGarageBays] = useState(2);
   const [style, setStyle] = useState<HomeStyle>("modern");
   const [finishes, setFinishes] = useState<FinishSelections>({ ...DEFAULT_FINISHES });
+  const [inspiration, setInspiration] = useState<InspirationResult | null>(null);
+
+  function handleInspiration(result: InspirationResult) {
+    setInspiration(result);
+    if (result.analysis?.styleKey) setStyle(result.analysis.styleKey);
+  }
   const [office, setOffice] = useState(false);
   const [gym, setGym] = useState(false);
   const [theater, setTheater] = useState(false);
@@ -67,6 +74,7 @@ export default function NewProjectPage() {
       packages,
       regionCode: region,
       finishes,
+      inspiration: inspiration ?? undefined,
     });
     router.push(`/app/project/${projectId}`);
   }
@@ -129,6 +137,8 @@ export default function NewProjectPage() {
             <input type="number" min={0} max={4} value={garageBays} onChange={(e) => setGarageBays(+e.target.value)} />
           </label>
         </div>
+
+        <InspirationUpload onResult={handleInspiration} />
 
         <label className="field">
           <span>Architectural style</span>
