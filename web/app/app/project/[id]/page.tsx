@@ -6,7 +6,13 @@ import { useEffect, useState } from "react";
 
 import { FloorPlan } from "@/components/FloorPlan";
 import { MassingView } from "@/components/MassingView";
-import { reviseConceptPackage, type ConceptPackage } from "@/lib/engine/loop";
+import { DEFAULT_FINISHES, FINISH_CATEGORIES } from "@/lib/catalog/materials";
+import { styleInfo } from "@/lib/catalog/styles";
+import {
+  repriceConceptPackage,
+  reviseConceptPackage,
+  type ConceptPackage,
+} from "@/lib/engine/loop";
 import { formatUsd, loadProject, saveProject, type StoredProject } from "@/lib/store";
 
 function scoreColor(score: number): string {
@@ -226,6 +232,21 @@ export default function ProjectPage() {
 
   const { project, packages } = entry;
 
+  function handleFinishChange(field: string, value: string) {
+    const current = loadProject(params.id);
+    if (!current) return;
+    current.finishes = { ...DEFAULT_FINISHES, ...current.finishes, [field]: value };
+    current.packages = current.packages.map((pkg) =>
+      repriceConceptPackage(pkg, {
+        budgetCents: current.project.budgetCents,
+        regionCode: current.regionCode,
+        finishes: current.finishes,
+      }),
+    );
+    saveProject(current);
+    setEntry(loadProject(params.id));
+  }
+
   function handleRevise(conceptId: string, text: string): string | null {
     const current = loadProject(params.id);
     if (!current) return "Project disappeared from local storage.";
@@ -234,6 +255,7 @@ export default function ProjectPage() {
     const outcome = reviseConceptPackage(current.packages[idx], text, {
       budgetCents: current.project.budgetCents,
       regionCode: current.regionCode,
+      finishes: current.finishes,
     });
     if (!outcome.pkg) {
       return outcome.unrecognized.length > 0
@@ -257,10 +279,34 @@ export default function ProjectPage() {
       </div>
       <p style={{ color: "var(--muted)" }}>
         Budget {project.budgetCents != null ? formatUsd(project.budgetCents) : "—"} · lot{" "}
-        {project.lotWidthFt}×{project.lotDepthFt} ft · concept-stage estimates ±15%. Concepts are
-        AI-assisted screening designs — not construction documents; professional review comes in
-        Phase 2.
+        {project.lotWidthFt}×{project.lotDepthFt} ft ·{" "}
+        {styleInfo(packages[0]?.concept.style)?.label ?? "—"} style · concept-stage estimates ±15%.
+        Concepts are AI-assisted screening designs — not construction documents; professional
+        review comes in Phase 2.
       </p>
+
+      <div className="card" style={{ marginBottom: "1.5rem" }}>
+        <h2>Interior finishes</h2>
+        <p>Change a finish and every concept re-prices instantly.</p>
+        <div className="field-row">
+          {FINISH_CATEGORIES.map(({ field, label, options }) => (
+            <label className="field" key={field}>
+              <span>{label}</span>
+              <select
+                value={entry?.finishes?.[field] ?? DEFAULT_FINISHES[field]}
+                onChange={(e) => handleFinishChange(field, e.target.value)}
+              >
+                {options.map((o) => (
+                  <option key={o.key} value={o.key}>
+                    {o.label} ({o.tier})
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
+      </div>
+
       {packages.map((pkg) => (
         <ConceptCard
           key={pkg.concept.id}
