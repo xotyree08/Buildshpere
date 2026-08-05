@@ -71,14 +71,117 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-function wallBoxes(room: Room, base: number, height: number, color: string): Box3[] {
+/** A void to cut through a wall: world-space span along the wall's axis. */
+interface WallCut {
+  axis: "x" | "z";
+  /** Centerline of the wall the opening lives in. */
+  plane: number;
+  from: number;
+  to: number;
+  y0: number;
+  y1: number;
+}
+
+/**
+ * Every opening becomes a real void so the interior is walkable: doors
+ * and passages cut floor-to-head, windows leave a sill wall below. The
+ * plane tolerance lets a room's doorway also pierce the hallway's facing
+ * wall right behind it — otherwise you'd step through a door into the
+ * back of another wall.
+ */
+function collectCuts(model: ParametricModel): WallCut[] {
+  const cuts: WallCut[] = [];
+  for (const o of model.openings) {
+    const room = model.rooms.find((r) => r.key === o.roomKey);
+    if (!room) continue;
+    const [x, z, w, d] = room.rect;
+    const base = room.level * WALL_HEIGHT_FT;
+    const isWindow = o.kind === "window";
+    const y0 = base + (isWindow ? WINDOW_SILL : 0);
+    const y1 = base + (isWindow ? WINDOW_HEAD : DOOR_HEAD);
+    if (o.wall === "n" || o.wall === "s") {
+      cuts.push({
+        axis: "x",
+        plane: o.wall === "n" ? z + WALL_T / 2 : z + d - WALL_T / 2,
+        from: x + o.offsetFt,
+        to: x + o.offsetFt + o.widthFt,
+        y0,
+        y1,
+      });
+    } else {
+      cuts.push({
+        axis: "z",
+        plane: o.wall === "w" ? x + WALL_T / 2 : x + w - WALL_T / 2,
+        from: z + o.offsetFt,
+        to: z + o.offsetFt + o.widthFt,
+        y0,
+        y1,
+      });
+    }
+  }
+  return cuts;
+}
+
+/** Walls closer than this (centerline to centerline) share an opening. */
+const CUT_PLANE_TOL = 1.0;
+
+/** Split one solid wall box around the voids that pierce it. */
+function cutWallBox(box: Box3, alongX: boolean, cuts: WallCut[]): Box3[] {
+  const lo = alongX ? box.x : box.z;
+  const hi = alongX ? box.x + box.w : box.z + box.d;
+  const relevant = cuts
+    .map((c) => ({ ...c, from: Math.max(c.from, lo), to: Math.min(c.to, hi) }))
+    .filter((c) => c.to - c.from > 0.05 && c.y0 < box.y + box.h && c.y1 > box.y)
+    .sort((a, b) => a.from - b.from);
+  if (relevant.length === 0) return [box];
+
+  // Merge overlapping voids conservatively (largest combined hole).
+  const merged: { from: number; to: number; y0: number; y1: number }[] = [];
+  for (const c of relevant) {
+    const last = merged[merged.length - 1];
+    if (last && c.from < last.to) {
+      last.to = Math.max(last.to, c.to);
+      last.y0 = Math.min(last.y0, c.y0);
+      last.y1 = Math.max(last.y1, c.y1);
+    } else {
+      merged.push({ from: c.from, to: c.to, y0: c.y0, y1: c.y1 });
+    }
+  }
+
+  const out: Box3[] = [];
+  const seg = (from: number, to: number, y: number, h: number) => {
+    if (to - from > 0.05 && h > 0.05) {
+      out.push(
+        alongX
+          ? { ...box, x: from, w: to - from, y, h }
+          : { ...box, z: from, d: to - from, y, h },
+      );
+    }
+  };
+  let cursor = lo;
+  for (const m of merged) {
+    seg(cursor, m.from, box.y, box.h); // solid run before the void
+    seg(m.from, m.to, box.y, m.y0 - box.y); // sill below (windows)
+    seg(m.from, m.to, m.y1, box.y + box.h - m.y1); // header above
+    cursor = m.to;
+  }
+  seg(cursor, hi, box.y, box.h);
+  return out;
+}
+
+function wallBoxes(room: Room, base: number, height: number, color: string, cuts: WallCut[]): Box3[] {
   const [x, z, w, d] = room.rect;
-  return [
-    { x, y: base, z, w, h: height, d: WALL_T, color, kind: "wall" }, // north (street side)
-    { x, y: base, z: z + d - WALL_T, w, h: height, d: WALL_T, color, kind: "wall" }, // south
-    { x, y: base, z, w: WALL_T, h: height, d, color, kind: "wall" }, // west
-    { x: x + w - WALL_T, y: base, z, w: WALL_T, h: height, d, color, kind: "wall" }, // east
+  const walls: { box: Box3; alongX: boolean }[] = [
+    { box: { x, y: base, z, w, h: height, d: WALL_T, color, kind: "wall" }, alongX: true }, // north (street side)
+    { box: { x, y: base, z: z + d - WALL_T, w, h: height, d: WALL_T, color, kind: "wall" }, alongX: true }, // south
+    { box: { x, y: base, z, w: WALL_T, h: height, d, color, kind: "wall" }, alongX: false }, // west
+    { box: { x: x + w - WALL_T, y: base, z, w: WALL_T, h: height, d, color, kind: "wall" }, alongX: false }, // east
   ];
+  return walls.flatMap(({ box, alongX }) => {
+    const plane = alongX ? box.z + box.d / 2 : box.x + box.w / 2;
+    const near = cuts.filter((c) => (c.axis === "x") === alongX && Math.abs(c.plane - plane) < CUT_PLANE_TOL);
+    return cutWallBox(box, alongX, near);
+  });
 }
 
 export function buildScene3D(
@@ -89,6 +192,7 @@ export function buildScene3D(
   const palette = exteriorPalette(finishes);
   const boxes: Box3[] = [];
   const roofs: Prism[] = [];
+  const cuts = collectCuts(model);
 
   for (const room of model.rooms) {
     const [x, z, w, d] = room.rect;
@@ -110,10 +214,10 @@ export function buildScene3D(
     }
     if (room.kind === "outdoor") {
       // Porch/deck: railing-height perimeter instead of full walls.
-      boxes.push(...wallBoxes(room, base, RAIL_H, palette.trim));
+      boxes.push(...wallBoxes(room, base, RAIL_H, palette.trim, cuts));
       continue;
     }
-    boxes.push(...wallBoxes(room, base, WALL_HEIGHT_FT, palette.wall));
+    boxes.push(...wallBoxes(room, base, WALL_HEIGHT_FT, palette.wall, cuts));
 
     for (const o of model.openings) {
       if (o.roomKey !== room.key || o.kind === "opening") continue;
@@ -127,8 +231,16 @@ export function buildScene3D(
       const h = head - sill;
       const TRIM = 0.35;
       const tt = WALL_T + 0.3; // trim sits proud of the glass
+      // Interior doors render swung open against the room-side wall, so
+      // the doorway itself reads (and walks) open; wide garage doors and
+      // windows stay in the wall plane.
+      const swing = kind === "door" && o.wall === "s" && o.widthFt < 6;
       const pushWithTrim = (bx: number, bz: number, bw: number, bd: number, alongX: boolean) => {
-        boxes.push({ x: bx, y, z: bz, w: bw, h, d: bd, color, kind });
+        if (swing && alongX) {
+          boxes.push({ x: bx + 0.05, y, z: bz - bw, w: 0.15, h, d: bw, color, kind });
+        } else {
+          boxes.push({ x: bx, y, z: bz, w: bw, h, d: bd, color, kind });
+        }
         if (alongX) {
           boxes.push({ x: bx - TRIM, y: y - TRIM, z: bz - 0.05, w: bw + 2 * TRIM, h: TRIM, d: tt, color: palette.trim, kind: "trim" });
           boxes.push({ x: bx - TRIM, y: y + h, z: bz - 0.05, w: bw + 2 * TRIM, h: TRIM, d: tt, color: palette.trim, kind: "trim" });
