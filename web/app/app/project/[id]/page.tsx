@@ -10,7 +10,7 @@ import { MassingView } from "@/components/MassingView";
 import { ReviewSection, type Review } from "@/components/ReviewSection";
 import { SitePlanView } from "@/components/SitePlanView";
 import { Walkthrough } from "@/components/Walkthrough";
-import { DEFAULT_FINISHES, EXTERIOR_CATEGORIES, FINISH_CATEGORIES } from "@/lib/catalog/materials";
+import { DEFAULT_FINISHES, EXTERIOR_CATEGORIES, FINISH_CATEGORIES, type FinishSelections } from "@/lib/catalog/materials";
 import { styleInfo } from "@/lib/catalog/styles";
 import { CONCEPT_DISCLAIMER, ESTIMATE_RANGE_CLAIM } from "@/lib/claims";
 import type { Interpretation } from "@/lib/engine/interpret";
@@ -116,6 +116,7 @@ function ConceptCard({
   expanded,
   onToggle,
   setbacks,
+  finishes,
   onRevise,
   onApplyVe,
   onRollback,
@@ -127,6 +128,7 @@ function ConceptCard({
   lotWidthFt: number;
   lotDepthFt: number;
   setbacks: SetbackRules;
+  finishes?: FinishSelections;
   expanded: boolean;
   onToggle: () => void;
   onRevise: (text: string) => Promise<string | null>;
@@ -239,7 +241,7 @@ function ConceptCard({
         ))
       ) : view === "massing" ? (
         <div style={{ margin: "0.75rem 0" }}>
-          <MassingView model={model} style={concept.style} />
+          <MassingView model={model} style={concept.style} finishes={finishes} />
           <p style={{ margin: "0.25rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>
             Massing preview — photorealistic rendering arrives with the ModelSphere pipeline.
           </p>
@@ -248,11 +250,11 @@ function ConceptCard({
         <div style={{ margin: "0.75rem 0", display: "flex", gap: "1.5rem", flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 260px" }}>
             <p style={{ margin: "0 0 0.25rem", fontSize: "0.8rem" }}>Front elevation (north)</p>
-            <ElevationView model={model} style={concept.style} direction="north" />
+            <ElevationView model={model} style={concept.style} direction="north" finishes={finishes} />
           </div>
           <div style={{ flex: "1 1 260px" }}>
             <p style={{ margin: "0 0 0.25rem", fontSize: "0.8rem" }}>Side elevation (east)</p>
-            <ElevationView model={model} style={concept.style} direction="east" />
+            <ElevationView model={model} style={concept.style} direction="east" finishes={finishes} />
           </div>
         </div>
       ) : view === "site" ? (
@@ -833,6 +835,7 @@ export default function ProjectPage() {
           lotWidthFt={project.lotWidthFt ?? 60}
           lotDepthFt={project.lotDepthFt ?? 120}
           setbacks={sanitizeSetbacks(entry.setbacks)}
+          finishes={entry.finishes}
           expanded={expanded === pkg.concept.id}
           onToggle={() => setExpanded(expanded === pkg.concept.id ? null : pkg.concept.id)}
           onRevise={(text) => handleRevise(pkg.concept.id, text)}
