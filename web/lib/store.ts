@@ -6,12 +6,15 @@
 
 import type { DesignBrief, Project } from "./types";
 import type { ConceptPackage } from "./engine/loop";
+import type { FinishSelections } from "./catalog/materials";
 
 export interface StoredProject {
   project: Project;
   brief: DesignBrief | null;
   packages: ConceptPackage[];
   regionCode: string;
+  /** Interior finish selections; absent on pre-catalog stored data. */
+  finishes?: FinishSelections;
 }
 
 const KEY = "buildsphere.projects.v1";

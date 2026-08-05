@@ -10,9 +10,30 @@
 import type {
   Estimate,
   EstimateLineItem,
+  HomeStyle,
   ParametricModel,
   ValueEngineeringSuggestion,
 } from "../types";
+import {
+  APPLIANCES,
+  CABINETS,
+  COUNTERTOPS,
+  DEFAULT_FINISHES,
+  FLOORING,
+  LIGHTING,
+  PAINT,
+  pick,
+  type FinishSelections,
+} from "../catalog/materials";
+import { styleInfo } from "../catalog/styles";
+
+export interface EstimateFinishes extends FinishSelections {
+  /** Architectural style; its cost factor scales structure & envelope. */
+  styleKey?: HomeStyle;
+}
+
+/** Line-item categories the style cost factor applies to. */
+const STYLE_SCALED = new Set(["Framing", "Roofing", "Exterior", "Windows & Doors"]);
 
 /** Regional cost multipliers vs. national baseline. Grows into a real price book. */
 const REGION_FACTORS: Record<string, number> = {
@@ -85,13 +106,33 @@ const PRICE_BOOK: BookEntry[] = [
   { category: "Windows & Doors", description: "Windows", unit: "ea", unitCostCents: 85000, qty: (q) => q.windows, source: "takeoff" },
   { category: "Windows & Doors", description: "Doors", unit: "ea", unitCostCents: 35000, qty: (q) => q.doors, source: "takeoff" },
   { category: "Plumbing", description: "Bath rough-in & fixtures", unit: "bath", unitCostCents: 1250000, qty: (q) => q.baths, source: "takeoff" },
-  { category: "Kitchen", description: "Cabinets, counters, appliances", unit: "ea", unitCostCents: 4200000, qty: (q) => q.kitchens, source: "allowance" },
   { category: "Electrical", description: "Service, wiring, fixtures", unit: "sqft", unitCostCents: 950, qty: (q) => q.livableSqft, source: "takeoff" },
   { category: "HVAC", description: "Heating & cooling", unit: "sqft", unitCostCents: 850, qty: (q) => q.livableSqft, source: "takeoff" },
   { category: "Interior", description: "Drywall, paint, trim", unit: "sqft", unitCostCents: 1600, qty: (q) => q.livableSqft, source: "takeoff" },
-  { category: "Flooring", description: "Flooring", unit: "sqft", unitCostCents: 1200, qty: (q) => q.livableSqft, source: "allowance" },
   { category: "Outdoor", description: "Outdoor kitchen/living", unit: "sqft", unitCostCents: 6000, qty: (q) => q.outdoorSqft, source: "allowance" },
 ];
+
+/** Finish-driven entries, resolved from the customer's selections. */
+function finishBook(finishes: EstimateFinishes): BookEntry[] {
+  const flooring = pick(FLOORING, finishes.flooring, DEFAULT_FINISHES.flooring);
+  const counters = pick(COUNTERTOPS, finishes.countertops, DEFAULT_FINISHES.countertops);
+  const cabinets = pick(CABINETS, finishes.cabinets, DEFAULT_FINISHES.cabinets);
+  const appliances = pick(APPLIANCES, finishes.appliances, DEFAULT_FINISHES.appliances);
+  const lighting = pick(LIGHTING, finishes.lighting, DEFAULT_FINISHES.lighting);
+  const paint = pick(PAINT, finishes.paint, DEFAULT_FINISHES.paint);
+
+  const entries: BookEntry[] = [
+    { category: "Flooring", description: flooring.label, unit: "sqft", unitCostCents: flooring.costPerSqftCents, qty: (q) => q.livableSqft, source: "allowance" },
+    { category: "Kitchen", description: `Cabinets — ${cabinets.label}`, unit: "ea", unitCostCents: cabinets.costCents, qty: (q) => q.kitchens, source: "allowance" },
+    { category: "Kitchen", description: `Countertops — ${counters.label}`, unit: "ea", unitCostCents: counters.costCents, qty: (q) => q.kitchens, source: "allowance" },
+    { category: "Kitchen", description: `Appliances — ${appliances.label}`, unit: "ea", unitCostCents: appliances.costCents, qty: (q) => q.kitchens, source: "allowance" },
+  ];
+  if (lighting.deltaPerSqftCents !== 0)
+    entries.push({ category: "Electrical", description: `Lighting — ${lighting.label}`, unit: "sqft", unitCostCents: lighting.deltaPerSqftCents, qty: (q) => q.livableSqft, source: "allowance" });
+  if (paint.deltaPerSqftCents !== 0)
+    entries.push({ category: "Interior", description: `Paint — ${paint.label}`, unit: "sqft", unitCostCents: paint.deltaPerSqftCents, qty: (q) => q.livableSqft, source: "allowance" });
+  return entries;
+}
 
 const SOFT_COST_PCT = 0.08;
 const CONTINGENCY_PCT = 0.1;
@@ -101,23 +142,28 @@ export function estimateRevision(
   model: ParametricModel,
   revisionId: string,
   regionCode: string = "US_NATIONAL",
+  finishes: EstimateFinishes = {},
 ): Estimate {
   const factor = REGION_FACTORS[regionCode] ?? 1.0;
+  const styleFactor = styleInfo(finishes.styleKey)?.costFactor ?? 1.0;
   const q = takeoff(model);
 
-  const lineItems: EstimateLineItem[] = PRICE_BOOK.map((entry, i) => {
-    const qty = Math.round(entry.qty(q) * 10) / 10;
-    return {
-      id: `li-${i}`,
-      estimateId: `est-${revisionId}`,
-      category: entry.category,
-      description: entry.description,
-      qty,
-      unit: entry.unit,
-      unitCostCents: Math.round(entry.unitCostCents * factor),
-      source: entry.source,
-    };
-  }).filter((li) => li.qty > 0);
+  const lineItems: EstimateLineItem[] = [...PRICE_BOOK, ...finishBook(finishes)]
+    .map((entry, i) => {
+      const qty = Math.round(entry.qty(q) * 10) / 10;
+      const style = STYLE_SCALED.has(entry.category) ? styleFactor : 1.0;
+      return {
+        id: `li-${i}`,
+        estimateId: `est-${revisionId}`,
+        category: entry.category,
+        description: entry.description,
+        qty,
+        unit: entry.unit,
+        unitCostCents: Math.round(entry.unitCostCents * factor * style),
+        source: entry.source,
+      };
+    })
+    .filter((li) => li.qty > 0);
 
   const hardCents = lineItems.reduce((s, li) => s + li.qty * li.unitCostCents, 0);
   const softCents = hardCents * SOFT_COST_PCT;

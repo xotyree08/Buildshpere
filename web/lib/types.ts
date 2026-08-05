@@ -31,14 +31,39 @@ export interface Project {
 // ---------- Design brief (interview) ----------
 
 export type HomeStyle =
+  // Modern & Contemporary
   | "modern"
-  | "traditional"
-  | "farmhouse"
-  | "mediterranean"
-  | "luxury_contemporary"
+  | "contemporary"
+  | "mid_century_modern"
+  | "minimalist"
+  | "industrial"
   | "scandinavian"
+  | "japandi"
+  // Classic American
+  | "traditional"
+  | "colonial"
+  | "georgian"
+  | "cape_cod"
+  | "craftsman"
+  | "victorian"
+  | "prairie"
+  | "ranch"
+  // European
+  | "tudor"
+  | "french_country"
+  | "mediterranean"
+  | "spanish_revival"
+  // Rustic & Country
+  | "farmhouse"
+  | "modern_farmhouse"
+  | "cottage"
+  | "mountain"
+  | "barndominium"
+  | "a_frame"
+  // Coastal & Resort
   | "coastal"
-  | "mountain";
+  | "tropical"
+  | "luxury_contemporary";
 
 export interface ProgramRequirements {
   familySize: number;

@@ -13,8 +13,16 @@ import type {
 } from "../types";
 import { generateConcepts } from "./generate";
 import { runChecks } from "./checks";
-import { estimateRevision, valueEngineering } from "./estimate";
+import { estimateRevision, valueEngineering, type EstimateFinishes } from "./estimate";
 import { applyRevision, parseRevisionRequest } from "./revise";
+import type { FinishSelections } from "../catalog/materials";
+
+export interface LoopOptions {
+  lotWidthFt: number | null;
+  budgetCents: number | null;
+  regionCode?: string;
+  finishes?: FinishSelections;
+}
 
 export interface RevisionPackage {
   revision: DesignRevision;
@@ -36,14 +44,12 @@ export interface ConceptPackage {
   revisions?: RevisionPackage[];
 }
 
-export function runDesignLoop(
-  brief: DesignBrief,
-  opts: { lotWidthFt: number | null; budgetCents: number | null; regionCode?: string },
-): ConceptPackage[] {
+export function runDesignLoop(brief: DesignBrief, opts: LoopOptions): ConceptPackage[] {
   return generateConcepts(brief, opts.lotWidthFt).map((concept) => {
     const revisionId = `${concept.id}-r0`;
+    const finishes: EstimateFinishes = { ...opts.finishes, styleKey: concept.style };
     const health = runChecks(concept.model, revisionId);
-    const estimate = estimateRevision(concept.model, revisionId, opts.regionCode);
+    const estimate = estimateRevision(concept.model, revisionId, opts.regionCode, finishes);
     return {
       concept,
       healthScore: health.score,
@@ -52,6 +58,31 @@ export function runDesignLoop(
       veSuggestions: valueEngineering(estimate, opts.budgetCents, concept.model),
     };
   });
+}
+
+/**
+ * Re-price an existing package (concept and its whole revision history) under
+ * new finish selections. Geometry and health are untouched — only money moves.
+ */
+export function repriceConceptPackage(
+  pkg: ConceptPackage,
+  opts: { budgetCents: number | null; regionCode?: string; finishes?: FinishSelections },
+): ConceptPackage {
+  const finishes: EstimateFinishes = { ...opts.finishes, styleKey: pkg.concept.style };
+  const baseEstimate = estimateRevision(pkg.concept.model, `${pkg.concept.id}-r0`, opts.regionCode, finishes);
+  return {
+    ...pkg,
+    estimate: baseEstimate,
+    veSuggestions: valueEngineering(baseEstimate, opts.budgetCents, pkg.concept.model),
+    revisions: (pkg.revisions ?? []).map((rev) => {
+      const estimate = estimateRevision(rev.revision.model, rev.revision.id, opts.regionCode, finishes);
+      return {
+        ...rev,
+        estimate,
+        veSuggestions: valueEngineering(estimate, opts.budgetCents, rev.revision.model),
+      };
+    }),
+  };
 }
 
 export interface ReviseOutcome {
@@ -69,7 +100,7 @@ export interface ReviseOutcome {
 export function reviseConceptPackage(
   base: ConceptPackage,
   requestText: string,
-  opts: { budgetCents: number | null; regionCode?: string },
+  opts: { budgetCents: number | null; regionCode?: string; finishes?: FinishSelections },
 ): ReviseOutcome {
   const { ops, unrecognized } = parseRevisionRequest(requestText);
   if (ops.length === 0) return { pkg: null, unrecognized };
@@ -82,8 +113,9 @@ export function reviseConceptPackage(
   const revisionIndex = history.length + 1;
   const revisionId = `${base.concept.id}-r${revisionIndex}`;
   const parentRevisionId = history.length > 0 ? history[history.length - 1].revision.id : `${base.concept.id}-r0`;
+  const finishes: EstimateFinishes = { ...opts.finishes, styleKey: base.concept.style };
   const health = runChecks(model, revisionId);
-  const estimate = estimateRevision(model, revisionId, opts.regionCode);
+  const estimate = estimateRevision(model, revisionId, opts.regionCode, finishes);
 
   return {
     pkg: {

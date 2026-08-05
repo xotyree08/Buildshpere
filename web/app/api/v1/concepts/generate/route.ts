@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import type { FinishSelections } from "@/lib/catalog/materials";
 import { runDesignLoop } from "@/lib/engine/loop";
 import type { DesignBrief } from "@/lib/types";
 
@@ -8,6 +9,7 @@ interface GenerateRequest {
   lotWidthFt?: number | null;
   budgetCents?: number | null;
   regionCode?: string;
+  finishes?: FinishSelections;
 }
 
 /**
@@ -32,6 +34,7 @@ export async function POST(req: Request) {
     lotWidthFt: body.lotWidthFt ?? null,
     budgetCents: body.budgetCents ?? null,
     regionCode: body.regionCode,
+    finishes: body.finishes,
   });
   return NextResponse.json({ packages });
 }

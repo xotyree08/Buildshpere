@@ -3,20 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { DEFAULT_FINISHES, FINISH_CATEGORIES, type FinishSelections } from "@/lib/catalog/materials";
+import { styleInfo, stylesByCategory } from "@/lib/catalog/styles";
 import { runDesignLoop } from "@/lib/engine/loop";
 import { newId, saveProject } from "@/lib/store";
 import type { DesignBrief, HomeStyle } from "@/lib/types";
-
-const STYLES: { value: HomeStyle; label: string }[] = [
-  { value: "modern", label: "Modern" },
-  { value: "traditional", label: "Traditional" },
-  { value: "farmhouse", label: "Farmhouse" },
-  { value: "mediterranean", label: "Mediterranean" },
-  { value: "luxury_contemporary", label: "Luxury Contemporary" },
-  { value: "scandinavian", label: "Scandinavian" },
-  { value: "coastal", label: "Coastal" },
-  { value: "mountain", label: "Mountain" },
-];
 
 const REGIONS = [
   ["US_NATIONAL", "US — National average"],
@@ -38,6 +29,7 @@ export default function NewProjectPage() {
   const [bathrooms, setBathrooms] = useState(2);
   const [garageBays, setGarageBays] = useState(2);
   const [style, setStyle] = useState<HomeStyle>("modern");
+  const [finishes, setFinishes] = useState<FinishSelections>({ ...DEFAULT_FINISHES });
   const [office, setOffice] = useState(false);
   const [gym, setGym] = useState(false);
   const [theater, setTheater] = useState(false);
@@ -59,7 +51,7 @@ export default function NewProjectPage() {
       lifestyleNotes: notes,
     };
     const budgetCents = Math.round(budget * 100);
-    const packages = runDesignLoop(brief, { lotWidthFt: lotWidth, budgetCents, regionCode: region });
+    const packages = runDesignLoop(brief, { lotWidthFt: lotWidth, budgetCents, regionCode: region, finishes });
     saveProject({
       project: {
         id: projectId,
@@ -74,6 +66,7 @@ export default function NewProjectPage() {
       brief,
       packages,
       regionCode: region,
+      finishes,
     });
     router.push(`/app/project/${projectId}`);
   }
@@ -138,15 +131,43 @@ export default function NewProjectPage() {
         </div>
 
         <label className="field">
-          <span>Style</span>
+          <span>Architectural style</span>
           <select value={style} onChange={(e) => setStyle(e.target.value as HomeStyle)}>
-            {STYLES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
+            {stylesByCategory().map(([category, styles]) => (
+              <optgroup key={category} label={category}>
+                {styles.map((s) => (
+                  <option key={s.key} value={s.key}>
+                    {s.label}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </label>
+        {styleInfo(style) && (
+          <p style={{ marginTop: "-0.5rem", fontSize: "0.85rem", color: "var(--muted)" }}>
+            {styleInfo(style)!.description} Roof: {styleInfo(style)!.roof}.
+          </p>
+        )}
+
+        <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Interior finishes</span>
+        <div className="field-row" style={{ marginTop: "0.25rem" }}>
+          {FINISH_CATEGORIES.map(({ field, label, options }) => (
+            <label className="field" key={field}>
+              <span>{label}</span>
+              <select
+                value={finishes[field] ?? DEFAULT_FINISHES[field]}
+                onChange={(e) => setFinishes({ ...finishes, [field]: e.target.value })}
+              >
+                {options.map((o) => (
+                  <option key={o.key} value={o.key}>
+                    {o.label} ({o.tier})
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
 
         <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Special spaces</span>
         <div className="checks">
