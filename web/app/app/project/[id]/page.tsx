@@ -9,7 +9,9 @@ import { MassingView } from "@/components/MassingView";
 import { DEFAULT_FINISHES, EXTERIOR_CATEGORIES, FINISH_CATEGORIES } from "@/lib/catalog/materials";
 import { styleInfo } from "@/lib/catalog/styles";
 import { CONCEPT_DISCLAIMER, ESTIMATE_RANGE_CLAIM } from "@/lib/claims";
+import type { Interpretation } from "@/lib/engine/interpret";
 import {
+  applyOpsToConceptPackage,
   repriceConceptPackage,
   reviseConceptPackage,
   type ConceptPackage,
@@ -20,6 +22,25 @@ function scoreColor(score: number): string {
   if (score >= 80) return "var(--accent)";
   if (score >= 60) return "#b58a1e";
   return "#c04f42";
+}
+
+/** Ask the server-side AI to interpret a request; "unavailable" on any failure. */
+async function interpretRequest(
+  text: string,
+  model: unknown,
+): Promise<Interpretation | "unavailable"> {
+  try {
+    const res = await fetch("/api/v1/revisions/interpret", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ request: text, model }),
+    });
+    if (!res.ok) return "unavailable";
+    const { interpretation } = (await res.json()) as { interpretation: Interpretation };
+    return interpretation;
+  } catch {
+    return "unavailable";
+  }
 }
 
 function ConceptCard({
@@ -33,10 +54,11 @@ function ConceptCard({
   budgetCents: number | null;
   expanded: boolean;
   onToggle: () => void;
-  onRevise: (text: string) => string | null;
+  onRevise: (text: string) => Promise<string | null>;
 }) {
   const [request, setRequest] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [revising, setRevising] = useState(false);
   const [view, setView] = useState<"plan" | "massing">("plan");
 
   const { concept } = pkg;
@@ -62,12 +84,17 @@ function ConceptCard({
     byCategory.set(li.category, (byCategory.get(li.category) ?? 0) + li.qty * li.unitCostCents);
   }
 
-  function submitRevision(e: React.FormEvent) {
+  async function submitRevision(e: React.FormEvent) {
     e.preventDefault();
-    if (!request.trim()) return;
-    const problem = onRevise(request.trim());
-    setFeedback(problem);
-    if (!problem) setRequest("");
+    if (!request.trim() || revising) return;
+    setRevising(true);
+    try {
+      const problem = await onRevise(request.trim());
+      setFeedback(problem);
+      if (!problem) setRequest("");
+    } finally {
+      setRevising(false);
+    }
   }
 
   return (
@@ -139,8 +166,8 @@ function ConceptCard({
           onChange={(e) => setRequest(e.target.value)}
           aria-label="Revision request"
         />
-        <button className="btn" type="submit">
-          Revise
+        <button className="btn" type="submit" disabled={revising}>
+          {revising ? "Revising…" : "Revise"}
         </button>
       </form>
       {feedback && <p className="status-warn">{feedback}</p>}
@@ -250,25 +277,43 @@ export default function ProjectPage() {
     if (saved.ok) setEntry(loadProject(params.id));
   }
 
-  function handleRevise(conceptId: string, text: string): string | null {
+  async function handleRevise(conceptId: string, text: string): Promise<string | null> {
     const current = loadProject(params.id);
     if (!current) return "Project disappeared from local storage.";
     const idx = current.packages.findIndex((p) => p.concept.id === conceptId);
     if (idx < 0) return "Concept not found.";
-    const outcome = reviseConceptPackage(current.packages[idx], text, {
+    const base = current.packages[idx];
+    const opts = {
       budgetCents: current.project.budgetCents,
       regionCode: current.regionCode,
       finishes: current.finishes,
-    });
-    if (!outcome.pkg) {
-      return outcome.unrecognized.length > 0
-        ? `Couldn't apply: ${outcome.unrecognized.join("; ")}. Try phrases like "bigger kitchen", "add an office", "remove the theater".`
-        : "Nothing to change.";
-    }
-    current.packages[idx] = {
-      ...current.packages[idx],
-      revisions: [...(current.packages[idx].revisions ?? []), outcome.pkg],
     };
+
+    // Deterministic parser first — fast, free, and sufficient for most requests.
+    let outcome = reviseConceptPackage(base, text, opts);
+
+    // Parser couldn't act → let the AI interpret intent into the same op shapes.
+    if (!outcome.pkg) {
+      const currentModel =
+        (base.revisions ?? []).length > 0
+          ? base.revisions![base.revisions!.length - 1].revision.model
+          : base.concept.model;
+      const interpreted = await interpretRequest(text, currentModel);
+      if (interpreted === "unavailable") {
+        return outcome.unrecognized.length > 0
+          ? `Couldn't apply: ${outcome.unrecognized.join("; ")}. Try phrases like "bigger kitchen", "add an office", "remove the theater".`
+          : "Nothing to change.";
+      }
+      if (interpreted.ops.length === 0) {
+        return interpreted.note || "Nothing in that request maps to a plan change.";
+      }
+      outcome = applyOpsToConceptPackage(base, interpreted.ops, opts);
+      if (!outcome.pkg) {
+        return outcome.unrecognized.length > 0 ? `Couldn't apply: ${outcome.unrecognized.join("; ")}` : "Nothing to change.";
+      }
+    }
+
+    current.packages[idx] = { ...base, revisions: [...(base.revisions ?? []), outcome.pkg] };
     const saved = saveProject(current);
     if (!saved.ok) return saved.error;
     setStorageNotice(saved.warning ?? null);
