@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { BrandMark } from "@/components/BrandMark";
 import { ElevationView } from "@/components/ElevationView";
 import { FloorPlan } from "@/components/FloorPlan";
 import { SitePlanView } from "@/components/SitePlanView";
@@ -43,7 +44,7 @@ export default function Home() {
     <div className="folio">
       <main>
         <div className="wordmark">
-          <strong>BUILDSPHERE</strong>
+          <strong style={{ display: "inline-flex", alignItems: "center", gap: "0.7rem" }}><BrandMark size={26} /> BUILDSPHERE</strong>
           <Link href="/pro">For professionals</Link>
         </div>
 

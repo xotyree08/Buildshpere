@@ -398,3 +398,41 @@ table.lineitems td:last-child, table.lineitems th:last-child { text-align: right
   --muted: #8d8271;
   color: #3a3227;
 }
+
+/* ---------- Animated brand mark ---------- */
+.brandmark { display: inline-block; vertical-align: -0.35em; color: var(--fg); }
+.brandmark svg { display: block; overflow: visible; }
+.bm-spin, .bm-spin-rev, .bm-orbit { transform-origin: 24px 24px; }
+.bm-spin { animation: bm-turn 9s linear infinite; }
+.bm-spin-rev { animation: bm-turn 14s linear infinite reverse; }
+.bm-orbit { animation: bm-turn 6s linear infinite; }
+@keyframes bm-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .bm-spin, .bm-spin-rev, .bm-orbit { animation: none; }
+}
+.viewer-shell { position: relative; }
+.viewer-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  align-items: center;
+  justify-content: center;
+  background: var(--card);
+  color: var(--brass);
+  font-size: 0.72rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  transition: opacity 0.6s;
+  pointer-events: none;
+}
+.viewer-loading.hidden { opacity: 0; }
+
+/* Mobile: rows wrap instead of forcing sideways scroll. */
+.topbar { flex-wrap: wrap; gap: 0.5rem 1rem; }
+.viewtabs { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.5rem 0; }
+@media (max-width: 640px) {
+  main { padding: 2.2rem 1rem; }
+  .report-visuals { flex-wrap: wrap; }
+}

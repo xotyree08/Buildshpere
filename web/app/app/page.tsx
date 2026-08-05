@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
+import { BrandMark } from "@/components/BrandMark";
 import { prepareImport, validateExport } from "@/lib/portability";
 import { accountEmail, deleteProject, formatUsd, loadProjects, newId, saveProject, type StoredProject } from "@/lib/store";
 
@@ -70,7 +71,7 @@ export default function ProjectsPage() {
   return (
     <main>
       <div className="topbar">
-        <h1>Your Projects</h1>
+        <h1 style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}><BrandMark size={26} /> Your Projects</h1>
         <span style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
           {accountEmail() && (
             <button className="btn secondary" type="button" onClick={() => void toggleNotifications()}>
