@@ -8,6 +8,7 @@ import { ElevationView } from "@/components/ElevationView";
 import { FloorPlan } from "@/components/FloorPlan";
 import { MassingView } from "@/components/MassingView";
 import { ReviewSection } from "@/components/ReviewSection";
+import { SitePlanView } from "@/components/SitePlanView";
 import { DEFAULT_FINISHES, EXTERIOR_CATEGORIES, FINISH_CATEGORIES } from "@/lib/catalog/materials";
 import { styleInfo } from "@/lib/catalog/styles";
 import { CONCEPT_DISCLAIMER, ESTIMATE_RANGE_CLAIM } from "@/lib/claims";
@@ -49,12 +50,16 @@ async function interpretRequest(
 function ConceptCard({
   pkg,
   budgetCents,
+  lotWidthFt,
+  lotDepthFt,
   expanded,
   onToggle,
   onRevise,
 }: {
   pkg: ConceptPackage;
   budgetCents: number | null;
+  lotWidthFt: number;
+  lotDepthFt: number;
   expanded: boolean;
   onToggle: () => void;
   onRevise: (text: string) => Promise<string | null>;
@@ -62,7 +67,7 @@ function ConceptCard({
   const [request, setRequest] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [revising, setRevising] = useState(false);
-  const [view, setView] = useState<"plan" | "massing" | "elevations">("plan");
+  const [view, setView] = useState<"plan" | "massing" | "elevations" | "site">("plan");
 
   const { concept } = pkg;
   const history = pkg.revisions ?? [];
@@ -138,6 +143,13 @@ function ConceptCard({
         >
           Elevations
         </button>
+        <button
+          className={view === "site" ? "btn" : "btn secondary"}
+          onClick={() => setView("site")}
+          type="button"
+        >
+          Site
+        </button>
       </p>
 
       {view === "plan" ? (
@@ -154,7 +166,7 @@ function ConceptCard({
             Massing preview — photorealistic rendering arrives with the ModelSphere pipeline.
           </p>
         </div>
-      ) : (
+      ) : view === "elevations" ? (
         <div style={{ margin: "0.75rem 0", display: "flex", gap: "1.5rem", flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 260px" }}>
             <p style={{ margin: "0 0 0.25rem", fontSize: "0.8rem" }}>Front elevation (north)</p>
@@ -164,6 +176,10 @@ function ConceptCard({
             <p style={{ margin: "0 0 0.25rem", fontSize: "0.8rem" }}>Side elevation (east)</p>
             <ElevationView model={model} style={concept.style} direction="east" />
           </div>
+        </div>
+      ) : (
+        <div style={{ margin: "0.75rem 0", maxWidth: 420 }}>
+          <SitePlanView model={model} lotWidthFt={lotWidthFt} lotDepthFt={lotDepthFt} />
         </div>
       )}
 
@@ -440,6 +456,8 @@ export default function ProjectPage() {
           key={pkg.concept.id}
           pkg={pkg}
           budgetCents={project.budgetCents}
+          lotWidthFt={project.lotWidthFt ?? 60}
+          lotDepthFt={project.lotDepthFt ?? 120}
           expanded={expanded === pkg.concept.id}
           onToggle={() => setExpanded(expanded === pkg.concept.id ? null : pkg.concept.id)}
           onRevise={(text) => handleRevise(pkg.concept.id, text)}
