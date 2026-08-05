@@ -12,10 +12,11 @@ export default function Home() {
           home — from first sketch through decades of ownership. Eight integrated systems, one
           source of truth.
         </p>
-        <p>
+        <p style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
           <Link className="btn" href="/app">
             Design your home
           </Link>
+          <Link href="/pro">For professionals</Link>
         </p>
       </section>
       <section className="grid">

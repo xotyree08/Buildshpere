@@ -11,6 +11,8 @@ export interface AuthUser {
   id: string;
   email: string;
   displayName: string | null;
+  /** 'homeowner' | 'professional' */
+  role: string;
 }
 
 export type AuthResult = { ok: true; user: AuthUser } | { ok: false; error: string };
