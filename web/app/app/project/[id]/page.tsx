@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 
 import { FloorPlan } from "@/components/FloorPlan";
 import { MassingView } from "@/components/MassingView";
+import { ReviewSection } from "@/components/ReviewSection";
 import { DEFAULT_FINISHES, EXTERIOR_CATEGORIES, FINISH_CATEGORIES } from "@/lib/catalog/materials";
 import { styleInfo } from "@/lib/catalog/styles";
 import { CONCEPT_DISCLAIMER, ESTIMATE_RANGE_CLAIM } from "@/lib/claims";
@@ -412,6 +413,8 @@ export default function ProjectPage() {
           ))}
         </div>
       </div>
+
+      <ReviewSection projectId={project.id} projectName={project.name} />
 
       {packages.map((pkg) => (
         <ConceptCard

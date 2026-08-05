@@ -18,6 +18,8 @@ export interface AuthUser {
   id: string;
   email: string;
   displayName: string | null;
+  /** 'homeowner' | 'professional' — license verification arrives with full Phase 2 (L8). */
+  role: string;
 }
 
 export function hashPassword(password: string): string {
@@ -53,19 +55,32 @@ export async function createUser(db: Db, email: string, password: string): Promi
 
   const id = randomUUID();
   await db.query(
-    "insert into users (id, email, password_hash, display_name, email_confirmed_at, created_at) values ($1, $2, $3, $4, $5, $6)",
-    [id, normalized, hashPassword(password), null, null, new Date().toISOString()],
+    "insert into users (id, email, password_hash, display_name, email_confirmed_at, created_at, role) values ($1, $2, $3, $4, $5, $6, $7)",
+    [id, normalized, hashPassword(password), null, null, new Date().toISOString(), "homeowner"],
   );
-  return { ok: true, user: { id, email: normalized, displayName: null } };
+  return { ok: true, user: { id, email: normalized, displayName: null, role: "homeowner" } };
+}
+
+/** Role change gated by an access code; the route enforces the code. */
+export async function setRole(db: Db, userId: string, role: "homeowner" | "professional"): Promise<void> {
+  await db.query("update users set role = $1 where id = $2", [role, userId]);
 }
 
 export async function authenticate(db: Db, email: string, password: string): Promise<AuthUser | null> {
   const normalized = email.trim().toLowerCase();
-  const res = await db.query("select id, email, password_hash, display_name from users where email = $1", [normalized]);
+  const res = await db.query(
+    "select id, email, password_hash, display_name, role from users where email = $1",
+    [normalized],
+  );
   const row = res.rows[0];
   if (!row) return null;
   if (!verifyPassword(password, String(row.password_hash))) return null;
-  return { id: String(row.id), email: String(row.email), displayName: (row.display_name as string | null) ?? null };
+  return {
+    id: String(row.id),
+    email: String(row.email),
+    displayName: (row.display_name as string | null) ?? null,
+    role: String(row.role ?? "homeowner"),
+  };
 }
 
 /** Create a session; returns the raw token for the cookie (hash stored). */
@@ -82,7 +97,7 @@ export async function createSession(db: Db, userId: string): Promise<string> {
 export async function getSessionUser(db: Db, rawToken: string): Promise<AuthUser | null> {
   if (!rawToken) return null;
   const res = await db.query(
-    "select u.id, u.email, u.display_name, s.expires_at from auth_sessions s join users u on u.id = s.user_id where s.token_hash = $1",
+    "select u.id, u.email, u.display_name, u.role, s.expires_at from auth_sessions s join users u on u.id = s.user_id where s.token_hash = $1",
     [tokenHash(rawToken)],
   );
   const row = res.rows[0];
@@ -91,7 +106,12 @@ export async function getSessionUser(db: Db, rawToken: string): Promise<AuthUser
     await db.query("delete from auth_sessions where token_hash = $1", [tokenHash(rawToken)]);
     return null;
   }
-  return { id: String(row.id), email: String(row.email), displayName: (row.display_name as string | null) ?? null };
+  return {
+    id: String(row.id),
+    email: String(row.email),
+    displayName: (row.display_name as string | null) ?? null,
+    role: String(row.role ?? "homeowner"),
+  };
 }
 
 export async function deleteSession(db: Db, rawToken: string): Promise<void> {

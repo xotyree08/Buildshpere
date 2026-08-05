@@ -39,6 +39,21 @@ create table if not exists projects (
   updated_at timestamp not null
 );
 create index if not exists projects_owner on projects(owner_id);
+
+create table if not exists review_requests (
+  id text primary key,
+  project_id text not null,
+  owner_id text not null,
+  project_name text not null,
+  status text not null,
+  note text,
+  professional_id text,
+  professional_email text,
+  created_at timestamp not null,
+  updated_at timestamp not null
+);
+create unique index if not exists review_requests_project on review_requests(project_id);
+create index if not exists review_requests_owner on review_requests(owner_id);
 `;
 
 /** Minimal query surface both pg.Pool and the test engine satisfy. */
@@ -47,15 +62,33 @@ export interface Db {
 }
 
 export async function ensureSchema(db: Db): Promise<void> {
-  // Idempotent by inspection: skip when the schema is already present
+  // Idempotent by inspection: apply base DDL only when absent
   // (re-running index DDL also trips the in-memory test engine).
   const existing = await db.query(
     "select 1 from information_schema.tables where table_name = 'users'",
   );
-  if (existing.rows.length > 0) return;
-  for (const statement of SCHEMA_SQL.split(";")) {
-    const sql = statement.trim();
-    if (sql) await db.query(sql);
+  if (existing.rows.length === 0) {
+    for (const statement of SCHEMA_SQL.split(";")) {
+      const sql = statement.trim();
+      if (sql) await db.query(sql);
+    }
+  }
+  // Incremental migrations for databases created before a column existed.
+  const roleCol = await db.query(
+    "select 1 from information_schema.columns where table_name = 'users' and column_name = 'role'",
+  );
+  if (roleCol.rows.length === 0) {
+    await db.query("alter table users add column role text not null default 'homeowner'");
+  }
+  const reviews = await db.query(
+    "select 1 from information_schema.tables where table_name = 'review_requests'",
+  );
+  if (reviews.rows.length === 0) {
+    const start = SCHEMA_SQL.indexOf("create table if not exists review_requests");
+    for (const statement of SCHEMA_SQL.slice(start).split(";")) {
+      const sql = statement.trim();
+      if (sql) await db.query(sql);
+    }
   }
 }
 
