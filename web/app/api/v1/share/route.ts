@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { isResponse, requireDb, requireUser } from "@/lib/server/http";
+import { recordAudit } from "@/lib/server/audit";
 import { createShareLink, hasShareLink, revokeShareLink } from "@/lib/server/shares";
 
 /**
@@ -36,6 +37,7 @@ export async function POST(req: Request) {
 
   const result = await createShareLink(db, user.id, body.projectId);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  await recordAudit(db, user.id, "share.create", body.projectId);
   return NextResponse.json({ token: result.token });
 }
 
@@ -48,5 +50,6 @@ export async function DELETE(req: Request) {
   const projectId = new URL(req.url).searchParams.get("projectId");
   if (!projectId) return NextResponse.json({ error: "projectId query parameter is required." }, { status: 422 });
   await revokeShareLink(db, user.id, projectId);
+  await recordAudit(db, user.id, "share.revoke", projectId);
   return NextResponse.json({ ok: true });
 }

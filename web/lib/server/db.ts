@@ -73,6 +73,16 @@ create table if not exists entitlements (
   updated_at timestamp not null
 );
 create unique index if not exists entitlements_user_product on entitlements(user_id, product_id);
+
+create table if not exists audit_events (
+  id text primary key,
+  actor_id text not null,
+  event text not null,
+  subject text,
+  detail text,
+  created_at timestamp not null
+);
+create index if not exists audit_events_actor on audit_events(actor_id, created_at);
 `;
 
 /** Minimal query surface both pg.Pool and the test engine satisfy. */
@@ -126,6 +136,17 @@ export async function ensureSchema(db: Db): Promise<void> {
   );
   if (entitlements.rows.length === 0) {
     const start = SCHEMA_SQL.indexOf("create table if not exists entitlements");
+    const end = SCHEMA_SQL.indexOf("create table if not exists audit_events");
+    for (const statement of SCHEMA_SQL.slice(start, end).split(";")) {
+      const sql = statement.trim();
+      if (sql) await db.query(sql);
+    }
+  }
+  const audit = await db.query(
+    "select 1 from information_schema.tables where table_name = 'audit_events'",
+  );
+  if (audit.rows.length === 0) {
+    const start = SCHEMA_SQL.indexOf("create table if not exists audit_events");
     for (const statement of SCHEMA_SQL.slice(start).split(";")) {
       const sql = statement.trim();
       if (sql) await db.query(sql);

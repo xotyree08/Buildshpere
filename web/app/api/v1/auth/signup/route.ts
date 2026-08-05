@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { recordAudit } from "@/lib/server/audit";
 import { createSession, createUser, SESSION_DAYS } from "@/lib/server/auth";
 import { isResponse, requireDb, setSessionCookie } from "@/lib/server/http";
 
@@ -22,5 +23,6 @@ export async function POST(req: Request) {
 
   const token = await createSession(db, result.user.id);
   await setSessionCookie(token, SESSION_DAYS * 24 * 60 * 60);
+  await recordAudit(db, result.user.id, "auth.signup");
   return NextResponse.json({ user: result.user });
 }
