@@ -7,6 +7,7 @@ import { InspirationUpload, type InspirationResult } from "@/components/Inspirat
 import { DEFAULT_FINISHES, EXTERIOR_CATEGORIES, FINISH_CATEGORIES, type FinishSelections } from "@/lib/catalog/materials";
 import { styleInfo, stylesByCategory } from "@/lib/catalog/styles";
 import { runDesignLoop } from "@/lib/engine/loop";
+import { numField } from "@/lib/forms";
 import { accountEmail, loadProject, newId, saveProject } from "@/lib/store";
 import { pushProject } from "@/lib/sync";
 import type { DesignBrief, HomeStyle } from "@/lib/types";
@@ -22,14 +23,16 @@ const REGIONS = [
 export default function NewProjectPage() {
   const router = useRouter();
   const [name, setName] = useState("My Custom Home");
-  const [budget, setBudget] = useState(450000);
+  // Numeric fields hold the raw string so erasing doesn't snap back to 0;
+  // numField() parses and clamps them on submit.
+  const [budget, setBudget] = useState("450000");
   const [region, setRegion] = useState("US_NATIONAL");
-  const [lotWidth, setLotWidth] = useState(60);
-  const [lotDepth, setLotDepth] = useState(120);
-  const [familySize, setFamilySize] = useState(4);
-  const [bedrooms, setBedrooms] = useState(3);
-  const [bathrooms, setBathrooms] = useState(2);
-  const [garageBays, setGarageBays] = useState(2);
+  const [lotWidth, setLotWidth] = useState("60");
+  const [lotDepth, setLotDepth] = useState("120");
+  const [familySize, setFamilySize] = useState("4");
+  const [bedrooms, setBedrooms] = useState("3");
+  const [bathrooms, setBathrooms] = useState("2");
+  const [garageBays, setGarageBays] = useState("2");
   const [style, setStyle] = useState<HomeStyle>("modern");
   const [finishes, setFinishes] = useState<FinishSelections>({ ...DEFAULT_FINISHES });
   const [inspiration, setInspiration] = useState<InspirationResult | null>(null);
@@ -50,25 +53,36 @@ export default function NewProjectPage() {
     e.preventDefault();
     setBusy(true);
     const projectId = newId();
+    const lotWidthFt = numField(lotWidth, { min: 25, fallback: 60 });
+    const lotDepthFt = numField(lotDepth, { min: 40, fallback: 120 });
     const brief: DesignBrief = {
       id: `${projectId}-brief-1`,
       projectId,
       version: 1,
-      program: { familySize, bedrooms, bathrooms, office, gym, theater, outdoorKitchen, garageBays },
+      program: {
+        familySize: numField(familySize, { min: 1, max: 12, fallback: 4 }),
+        bedrooms: numField(bedrooms, { min: 1, max: 8, fallback: 3 }),
+        bathrooms: numField(bathrooms, { min: 1, max: 8, fallback: 2 }),
+        office,
+        gym,
+        theater,
+        outdoorKitchen,
+        garageBays: numField(garageBays, { min: 0, max: 4, fallback: 2 }),
+      },
       style,
       interiors: {},
       lifestyleNotes: notes,
     };
-    const budgetCents = Math.round(budget * 100);
-    const packages = runDesignLoop(brief, { lotWidthFt: lotWidth, budgetCents, regionCode: region, finishes });
+    const budgetCents = numField(budget, { min: 50000, fallback: 450000 }) * 100;
+    const packages = runDesignLoop(brief, { lotWidthFt, budgetCents, regionCode: region, finishes });
     const saved = saveProject({
       project: {
         id: projectId,
         ownerId: "local",
         name,
         addressText: null,
-        lotWidthFt: lotWidth,
-        lotDepthFt: lotDepth,
+        lotWidthFt,
+        lotDepthFt,
         budgetCents,
         status: "designing",
       },
@@ -106,7 +120,7 @@ export default function NewProjectPage() {
         <div className="field-row">
           <label className="field">
             <span>Budget (USD)</span>
-            <input type="number" min={50000} step={10000} value={budget} onChange={(e) => setBudget(+e.target.value)} />
+            <input type="number" min={50000} step={10000} value={budget} onChange={(e) => setBudget(e.target.value)} />
           </label>
           <label className="field">
             <span>Region</span>
@@ -123,30 +137,30 @@ export default function NewProjectPage() {
         <div className="field-row">
           <label className="field">
             <span>Lot width (ft)</span>
-            <input type="number" min={25} value={lotWidth} onChange={(e) => setLotWidth(+e.target.value)} />
+            <input type="number" min={25} value={lotWidth} onChange={(e) => setLotWidth(e.target.value)} />
           </label>
           <label className="field">
             <span>Lot depth (ft)</span>
-            <input type="number" min={40} value={lotDepth} onChange={(e) => setLotDepth(+e.target.value)} />
+            <input type="number" min={40} value={lotDepth} onChange={(e) => setLotDepth(e.target.value)} />
           </label>
         </div>
 
         <div className="field-row">
           <label className="field">
             <span>Family size</span>
-            <input type="number" min={1} max={12} value={familySize} onChange={(e) => setFamilySize(+e.target.value)} />
+            <input type="number" min={1} max={12} value={familySize} onChange={(e) => setFamilySize(e.target.value)} />
           </label>
           <label className="field">
             <span>Bedrooms</span>
-            <input type="number" min={1} max={8} value={bedrooms} onChange={(e) => setBedrooms(+e.target.value)} />
+            <input type="number" min={1} max={8} value={bedrooms} onChange={(e) => setBedrooms(e.target.value)} />
           </label>
           <label className="field">
             <span>Bathrooms</span>
-            <input type="number" min={1} max={8} value={bathrooms} onChange={(e) => setBathrooms(+e.target.value)} />
+            <input type="number" min={1} max={8} value={bathrooms} onChange={(e) => setBathrooms(e.target.value)} />
           </label>
           <label className="field">
             <span>Garage bays</span>
-            <input type="number" min={0} max={4} value={garageBays} onChange={(e) => setGarageBays(+e.target.value)} />
+            <input type="number" min={0} max={4} value={garageBays} onChange={(e) => setGarageBays(e.target.value)} />
           </label>
         </div>
 
