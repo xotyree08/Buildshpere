@@ -1,11 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { accountEmail } from "@/lib/store";
-
-interface Review {
+export interface Review {
   id: string;
   projectId: string;
   status: "requested" | "claimed" | "approved" | "changes_requested";
@@ -20,23 +18,25 @@ const STATUS_LABEL: Record<Review["status"], string> = {
   changes_requested: "Changes requested",
 };
 
-/** Owner-facing professional-review status + request CTA (Phase 2 seam, now real). */
-export function ReviewSection({ projectId, projectName }: { projectId: string; projectName: string }) {
-  const [review, setReview] = useState<Review | null>(null);
-  const [signedIn] = useState<boolean>(() => Boolean(accountEmail()));
+/**
+ * Owner-facing professional-review status + request CTA. Review state is
+ * owned by the project page (single fetch, shared with permit readiness).
+ */
+export function ReviewSection({
+  projectId,
+  projectName,
+  signedIn,
+  review,
+  onReviewChange,
+}: {
+  projectId: string;
+  projectName: string;
+  signedIn: boolean;
+  review: Review | null;
+  onReviewChange: (review: Review) => void;
+}) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!signedIn) return;
-    void fetch("/api/v1/reviews")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: { reviews: Review[] } | null) => {
-        const mine = data?.reviews.find((rv) => rv.projectId === projectId) ?? null;
-        setReview(mine);
-      })
-      .catch(() => null);
-  }, [projectId, signedIn]);
 
   async function request() {
     setBusy(true);
@@ -52,7 +52,7 @@ export function ReviewSection({ projectId, projectName }: { projectId: string; p
         setMessage(body?.error ?? "Requesting a review failed — try again.");
         return;
       }
-      setReview(body.review);
+      onReviewChange(body.review);
     } finally {
       setBusy(false);
     }

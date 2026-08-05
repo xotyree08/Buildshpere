@@ -135,12 +135,14 @@ const checks: Record<CheckKey, CheckFn> = {
   },
 
   structural_spans: (m) => {
-    const wide = m.rooms.filter((r) => minDim(r) > 24 || Math.max(r.rect[2], r.rect[3]) > 30);
+    // Joists span a room's SHORT dimension — a long narrow hallway is
+    // framed trivially; a 26-ft-clear great room is not.
+    const wide = m.rooms.filter((r) => minDim(r) > 24);
     if (wide.length === 0) return [result("pass", "All spans within conventional framing.")];
     return wide.map((r) =>
       result(
-        Math.max(r.rect[2], r.rect[3]) > 36 ? "fail" : "warn",
-        `${r.label} spans ${Math.max(r.rect[2], r.rect[3])} ft — needs engineered members (verify in EngineerSphere).`,
+        minDim(r) > 30 ? "fail" : "warn",
+        `${r.label} spans ${minDim(r)} ft clear — needs engineered members (verify in EngineerSphere).`,
         { roomKey: r.key },
       ),
     );
