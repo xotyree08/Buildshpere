@@ -5,8 +5,8 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { FloorPlan } from "@/components/FloorPlan";
-import type { ConceptPackage } from "@/lib/engine/loop";
-import { formatUsd, loadProject, type StoredProject } from "@/lib/store";
+import { reviseConceptPackage, type ConceptPackage } from "@/lib/engine/loop";
+import { formatUsd, loadProject, saveProject, type StoredProject } from "@/lib/store";
 
 function scoreColor(score: number): string {
   if (score >= 80) return "var(--accent)";
@@ -19,40 +19,68 @@ function ConceptCard({
   budgetCents,
   expanded,
   onToggle,
+  onRevise,
 }: {
   pkg: ConceptPackage;
   budgetCents: number | null;
   expanded: boolean;
   onToggle: () => void;
+  onRevise: (text: string) => string | null;
 }) {
-  const { concept, healthScore, checkResults, estimate, veSuggestions } = pkg;
+  const [request, setRequest] = useState("");
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  const { concept } = pkg;
+  const history = pkg.revisions ?? [];
+  const latest = history.length > 0 ? history[history.length - 1] : null;
+  const model = latest ? latest.revision.model : concept.model;
+  const healthScore = latest ? latest.healthScore : pkg.healthScore;
+  const checkResults = latest ? latest.checkResults : pkg.checkResults;
+  const estimate = latest ? latest.estimate : pkg.estimate;
+  const veSuggestions = latest ? latest.veSuggestions : pkg.veSuggestions;
+
   const over = budgetCents != null && estimate.totalCents > budgetCents;
   const delta = budgetCents != null ? estimate.totalCents - budgetCents : null;
+
+  const sqft = Math.round(
+    model.rooms
+      .filter((r) => r.kind !== "garage" && r.kind !== "outdoor")
+      .reduce((a, r) => a + r.rect[2] * r.rect[3], 0),
+  );
 
   const byCategory = new Map<string, number>();
   for (const li of estimate.lineItems) {
     byCategory.set(li.category, (byCategory.get(li.category) ?? 0) + li.qty * li.unitCostCents);
   }
 
+  function submitRevision(e: React.FormEvent) {
+    e.preventDefault();
+    if (!request.trim()) return;
+    const problem = onRevise(request.trim());
+    setFeedback(problem);
+    if (!problem) setRequest("");
+  }
+
   return (
     <div className="card" style={{ marginBottom: "1.5rem" }}>
       <div className="topbar" style={{ marginBottom: "0.5rem" }}>
-        <h2 style={{ margin: 0 }}>{concept.label}</h2>
+        <h2 style={{ margin: 0 }}>
+          {concept.label}
+          {latest && <span style={{ color: "var(--muted)", fontWeight: 400 }}> · rev {history.length}</span>}
+        </h2>
         <span className="scorepill" style={{ color: scoreColor(healthScore) }}>
           Health {healthScore}
         </span>
       </div>
       <p>
-        {concept.sqft.toLocaleString()} sqft · {concept.beds} bed / {concept.baths} bath ·{" "}
-        {concept.model.levels === 2 ? "two-story" : "single-story"}
+        {sqft.toLocaleString()} sqft · {concept.beds} bed / {concept.baths} bath ·{" "}
+        {model.levels === 2 ? "two-story" : "single-story"}
       </p>
 
-      {Array.from({ length: concept.model.levels }, (_, lvl) => (
+      {Array.from({ length: model.levels }, (_, lvl) => (
         <div key={lvl} style={{ margin: "0.75rem 0" }}>
-          {concept.model.levels > 1 && (
-            <p style={{ margin: "0 0 0.25rem", fontSize: "0.8rem" }}>Level {lvl + 1}</p>
-          )}
-          <FloorPlan model={concept.model} level={lvl} />
+          {model.levels > 1 && <p style={{ margin: "0 0 0.25rem", fontSize: "0.8rem" }}>Level {lvl + 1}</p>}
+          <FloorPlan model={model} level={lvl} />
         </div>
       ))}
 
@@ -67,6 +95,32 @@ function ConceptCard({
           </span>
         )}
       </p>
+
+      <form onSubmit={submitRevision} style={{ display: "flex", gap: "0.5rem", margin: "0.75rem 0" }}>
+        <input
+          style={{ flex: 1, padding: "0.55rem 0.7rem", border: "1px solid var(--line)", borderRadius: 8, background: "var(--card)", color: "var(--fg)", font: "inherit" }}
+          placeholder='Request a change — e.g. "bigger kitchen, add a mudroom"'
+          value={request}
+          onChange={(e) => setRequest(e.target.value)}
+          aria-label="Revision request"
+        />
+        <button className="btn" type="submit">
+          Revise
+        </button>
+      </form>
+      {feedback && <p className="status-warn">{feedback}</p>}
+      {latest && latest.rejected.length > 0 && <p className="status-warn">{latest.rejected.join(" ")}</p>}
+
+      {history.length > 0 && (
+        <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
+          {history.map((h, i) => (
+            <span key={h.revision.id}>
+              {i + 1}. {h.revision.changeSummary}
+              {i < history.length - 1 ? " → " : ""}
+            </span>
+          ))}
+        </p>
+      )}
 
       <button className="btn secondary" onClick={onToggle}>
         {expanded ? "Hide details" : "Checks, costs & savings"}
@@ -143,6 +197,30 @@ export default function ProjectPage() {
     );
 
   const { project, packages } = entry;
+
+  function handleRevise(conceptId: string, text: string): string | null {
+    const current = loadProject(params.id);
+    if (!current) return "Project disappeared from local storage.";
+    const idx = current.packages.findIndex((p) => p.concept.id === conceptId);
+    if (idx < 0) return "Concept not found.";
+    const outcome = reviseConceptPackage(current.packages[idx], text, {
+      budgetCents: current.project.budgetCents,
+      regionCode: current.regionCode,
+    });
+    if (!outcome.pkg) {
+      return outcome.unrecognized.length > 0
+        ? `Couldn't apply: ${outcome.unrecognized.join("; ")}. Try phrases like "bigger kitchen", "add an office", "remove the theater".`
+        : "Nothing to change.";
+    }
+    current.packages[idx] = {
+      ...current.packages[idx],
+      revisions: [...(current.packages[idx].revisions ?? []), outcome.pkg],
+    };
+    saveProject(current);
+    setEntry(loadProject(params.id));
+    return null;
+  }
+
   return (
     <main>
       <div className="topbar">
@@ -162,6 +240,7 @@ export default function ProjectPage() {
           budgetCents={project.budgetCents}
           expanded={expanded === pkg.concept.id}
           onToggle={() => setExpanded(expanded === pkg.concept.id ? null : pkg.concept.id)}
+          onRevise={(text) => handleRevise(pkg.concept.id, text)}
         />
       ))}
     </main>
