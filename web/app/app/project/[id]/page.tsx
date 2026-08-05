@@ -24,6 +24,8 @@ import {
   type ConceptPackage,
 } from "@/lib/engine/loop";
 import { SetbacksEditor } from "@/components/SetbacksEditor";
+import { SCENARIOS } from "@/lib/catalog/scenarios";
+import { compareConcepts } from "@/lib/engine/compare";
 import { buildPermitReadiness } from "@/lib/engine/permit";
 import { buildSitePlan, sanitizeSetbacks, type SetbackRules } from "@/lib/engine/site";
 import { exportFilename, exportProject } from "@/lib/portability";
@@ -810,6 +812,67 @@ export default function ProjectPage() {
               Revoke
             </button>
           </p>
+        </div>
+      )}
+
+      {packages.length > 1 && (
+        <div className="card" style={{ marginBottom: "1.5rem", overflowX: "auto" }}>
+          <h2 style={{ marginTop: 0 }}>Compare concepts</h2>
+          <p style={{ fontSize: "0.85rem", color: "var(--muted)", margin: "0 0 0.5rem" }}>
+            Normalized metrics on each concept&apos;s current state, plus every budget scenario
+            priced against it. &quot;Current&quot; is your actual selections — scenarios never
+            overwrite them.
+          </p>
+          {(() => {
+            const rows = compareConcepts(packages, {
+              regionCode: entry.regionCode,
+              lotWidthFt: project.lotWidthFt ?? 60,
+              lotDepthFt: project.lotDepthFt ?? 120,
+              setbacks: sanitizeSetbacks(entry.setbacks),
+            });
+            return (
+              <table className="lineitems">
+                <thead>
+                  <tr>
+                    <th>Concept</th>
+                    <th>Sqft</th>
+                    <th>Beds/Baths</th>
+                    <th>Stories</th>
+                    <th>Health</th>
+                    <th>Site fit</th>
+                    <th>$/sqft</th>
+                    <th>Current</th>
+                    {SCENARIOS.map((s) => (
+                      <th key={s.key} title={s.blurb}>
+                        {s.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.conceptId}>
+                      <td>{r.label}</td>
+                      <td>{r.sqft.toLocaleString()}</td>
+                      <td>
+                        {r.beds}/{r.baths}
+                      </td>
+                      <td>{r.levels}</td>
+                      <td>{r.healthScore}</td>
+                      <td className={r.fitsLot ? "status-pass" : "status-fail"}>{r.fitsLot ? "fits" : "check"}</td>
+                      <td>{formatUsd(r.costPerSqftCents)}</td>
+                      <td>
+                        <strong>{formatUsd(r.currentTotalCents)}</strong>
+                      </td>
+                      {SCENARIOS.map((s) => (
+                        <td key={s.key}>{formatUsd(r.scenarioTotals[s.key])}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            );
+          })()}
         </div>
       )}
 
