@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { FloorPlan } from "@/components/FloorPlan";
+import { MassingView } from "@/components/MassingView";
 import { reviseConceptPackage, type ConceptPackage } from "@/lib/engine/loop";
 import { formatUsd, loadProject, saveProject, type StoredProject } from "@/lib/store";
 
@@ -29,6 +30,7 @@ function ConceptCard({
 }) {
   const [request, setRequest] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [view, setView] = useState<"plan" | "massing">("plan");
 
   const { concept } = pkg;
   const history = pkg.revisions ?? [];
@@ -77,12 +79,38 @@ function ConceptCard({
         {model.levels === 2 ? "two-story" : "single-story"}
       </p>
 
-      {Array.from({ length: model.levels }, (_, lvl) => (
-        <div key={lvl} style={{ margin: "0.75rem 0" }}>
-          {model.levels > 1 && <p style={{ margin: "0 0 0.25rem", fontSize: "0.8rem" }}>Level {lvl + 1}</p>}
-          <FloorPlan model={model} level={lvl} />
+      <p style={{ display: "flex", gap: "0.5rem", margin: "0.5rem 0" }}>
+        <button
+          className={view === "plan" ? "btn" : "btn secondary"}
+          onClick={() => setView("plan")}
+          type="button"
+        >
+          2D plan
+        </button>
+        <button
+          className={view === "massing" ? "btn" : "btn secondary"}
+          onClick={() => setView("massing")}
+          type="button"
+        >
+          3D massing
+        </button>
+      </p>
+
+      {view === "plan" ? (
+        Array.from({ length: model.levels }, (_, lvl) => (
+          <div key={lvl} style={{ margin: "0.75rem 0" }}>
+            {model.levels > 1 && <p style={{ margin: "0 0 0.25rem", fontSize: "0.8rem" }}>Level {lvl + 1}</p>}
+            <FloorPlan model={model} level={lvl} />
+          </div>
+        ))
+      ) : (
+        <div style={{ margin: "0.75rem 0" }}>
+          <MassingView model={model} />
+          <p style={{ margin: "0.25rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>
+            Massing preview — photorealistic rendering arrives with the ModelSphere pipeline.
+          </p>
         </div>
-      ))}
+      )}
 
       <p style={{ fontSize: "1.05rem" }}>
         <strong>{formatUsd(estimate.totalCents)}</strong>{" "}
