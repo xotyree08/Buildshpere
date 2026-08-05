@@ -805,6 +805,7 @@ export default function ProjectPage() {
           <Link href={`/app/project/${project.id}/report`}>Design report</Link>
           <Link href={`/app/project/${project.id}/bids`}>Bid package</Link>
           <Link href={`/app/project/${project.id}/schedule`}>Schedule</Link>
+          <Link href={`/app/project/${project.id}/maintenance`}>Maintenance</Link>
           <Link href="/app">All projects</Link>
         </span>
       </div>
