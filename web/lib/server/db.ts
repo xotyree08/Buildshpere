@@ -74,6 +74,26 @@ create table if not exists entitlements (
 );
 create unique index if not exists entitlements_user_product on entitlements(user_id, product_id);
 
+create table if not exists professional_profiles (
+  user_id text primary key,
+  full_name text not null,
+  discipline text not null,
+  license_number text not null,
+  license_state text not null,
+  status text not null,
+  submitted_at timestamp not null
+);
+
+create table if not exists review_invites (
+  token_hash text primary key,
+  review_id text not null,
+  owner_id text not null,
+  created_at timestamp not null,
+  used_by text,
+  used_at timestamp
+);
+create index if not exists review_invites_review on review_invites(review_id);
+
 create table if not exists audit_events (
   id text primary key,
   actor_id text not null,
@@ -151,6 +171,23 @@ export async function ensureSchema(db: Db): Promise<void> {
       const sql = statement.trim();
       if (sql) await db.query(sql);
     }
+  }
+  const pros = await db.query(
+    "select 1 from information_schema.tables where table_name = 'professional_profiles'",
+  );
+  if (pros.rows.length === 0) {
+    const start = SCHEMA_SQL.indexOf("create table if not exists professional_profiles");
+    const end = SCHEMA_SQL.indexOf("create table if not exists audit_events");
+    for (const statement of SCHEMA_SQL.slice(start, end).split(";")) {
+      const sql = statement.trim();
+      if (sql) await db.query(sql);
+    }
+  }
+  const invitedCol = await db.query(
+    "select 1 from information_schema.columns where table_name = 'review_requests' and column_name = 'invited'",
+  );
+  if (invitedCol.rows.length === 0) {
+    await db.query("alter table review_requests add column invited text not null default 'open'");
   }
 }
 

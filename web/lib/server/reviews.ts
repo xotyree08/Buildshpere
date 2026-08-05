@@ -22,6 +22,14 @@ export interface ReviewRequest {
   professionalId: string | null;
   professionalEmail: string | null;
   updatedAt: string;
+  /** Reviewer credentials (self-reported) — present once a profile exists. */
+  professional?: {
+    fullName: string;
+    discipline: string;
+    licenseNumber: string;
+    licenseState: string;
+    credentialStatus: string;
+  };
 }
 
 function fromRow(row: Record<string, unknown>): ReviewRequest {
@@ -73,15 +81,35 @@ export async function requestReview(
 }
 
 export async function listReviewsForOwner(db: Db, ownerId: string): Promise<ReviewRequest[]> {
-  const res = await db.query("select * from review_requests where owner_id = $1 order by updated_at desc", [ownerId]);
-  return res.rows.map(fromRow);
+  const res = await db.query(
+    `select r.*, p.full_name, p.discipline, p.license_number, p.license_state, p.status as credential_status
+     from review_requests r
+     left join professional_profiles p on p.user_id = r.professional_id
+     where r.owner_id = $1 order by r.updated_at desc`,
+    [ownerId],
+  );
+  return res.rows.map((row) => {
+    const review = fromRow(row);
+    if (row.full_name) {
+      review.professional = {
+        fullName: String(row.full_name),
+        discipline: String(row.discipline),
+        licenseNumber: String(row.license_number),
+        licenseState: String(row.license_state),
+        credentialStatus: String(row.credential_status),
+      };
+    }
+    return review;
+  });
 }
 
-/** The professional queue: everything not yet approved. */
-export async function listOpenReviews(db: Db): Promise<ReviewRequest[]> {
+/** The professional queue: open (non-directed) reviews not yet approved,
+ * plus anything this professional already holds. Directed invitations are
+ * private between the homeowner and their invited professional. */
+export async function listOpenReviews(db: Db, professionalId?: string): Promise<ReviewRequest[]> {
   const res = await db.query(
-    "select * from review_requests where status != $1 order by updated_at desc",
-    ["approved"],
+    "select * from review_requests where status != $1 and (invited != 'directed' or professional_id = $2) order by updated_at desc",
+    ["approved", professionalId ?? ""],
   );
   return res.rows.map(fromRow);
 }

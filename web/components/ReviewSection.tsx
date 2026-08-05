@@ -39,6 +39,32 @@ export function ReviewSection({
 }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+
+  async function invite() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/v1/pro/invite", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId, projectName }),
+      }).catch(() => null);
+      const body = (await res?.json().catch(() => null)) as { token?: string; error?: string } | null;
+      if (!res?.ok || !body?.token) {
+        setMessage(body?.error ?? "Creating the invite failed — try again.");
+        return;
+      }
+      setInviteUrl(`${window.location.origin}/pro/join/${body.token}`);
+      // The review now exists (directed) — refresh the parent's view of it.
+      const refreshed = await fetch("/api/v1/reviews").catch(() => null);
+      const data = (await refreshed?.json().catch(() => null)) as { reviews?: Review[] } | null;
+      const mine = data?.reviews?.find((r) => r.projectId === projectId);
+      if (mine) onReviewChange(mine);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function request() {
     setBusy(true);
@@ -91,12 +117,40 @@ export function ReviewSection({
       ) : (
         <>
           <p>
-            Have a licensed professional review this design before it goes further. Reviews are
-            advisory until stamped drawings arrive with full Phase 2.
+            Have a licensed professional review this design before it goes further. Post it to the
+            open queue, or invite <em>your own</em> architect or designer with a private link.
+            Reviews are advisory until stamped drawings arrive with full Phase 2.
           </p>
-          <button className="btn" onClick={request} disabled={busy}>
-            {busy ? "Working…" : "Request professional review"}
+          <p style={{ display: "flex", gap: "0.75rem" }}>
+            <button className="btn" onClick={request} disabled={busy}>
+              {busy ? "Working…" : "Request professional review"}
+            </button>
+            <button className="btn secondary" onClick={invite} disabled={busy}>
+              Invite my architect/designer
+            </button>
+          </p>
+        </>
+      )}
+      {signedIn && review && review.status !== "approved" && !inviteUrl && (
+        <p>
+          <button className="btn secondary" onClick={invite} disabled={busy}>
+            Invite my architect/designer
           </button>
+        </p>
+      )}
+      {inviteUrl && (
+        <>
+          <p style={{ fontSize: "0.9rem", color: "var(--muted)" }}>
+            Send this single-use link to your professional. It assigns the review to them
+            privately — it will not appear in the open queue. Creating a new link replaces this
+            one.
+          </p>
+          <p style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+            <input readOnly value={inviteUrl} style={{ flex: 1, minWidth: "16rem" }} onFocus={(e) => e.target.select()} />
+            <button className="btn secondary" type="button" onClick={() => void navigator.clipboard?.writeText(inviteUrl)}>
+              Copy
+            </button>
+          </p>
         </>
       )}
       {message && <p className="status-warn">{message}</p>}

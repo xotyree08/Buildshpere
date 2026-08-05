@@ -16,6 +16,16 @@ interface Review {
   updatedAt: string;
 }
 
+interface Profile {
+  fullName: string;
+  discipline: string;
+  licenseNumber: string;
+  licenseState: string;
+  status: string;
+}
+
+const DISCIPLINES = ["architect", "engineer", "designer", "surveyor"];
+
 /** The Professional Portal's first slice: the review queue (EngineerSphere, Phase 2). */
 export default function ProPage() {
   const [me, setMe] = useState<AuthUser | null | undefined>(undefined);
@@ -24,12 +34,20 @@ export default function ProPage() {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [profile, setProfile] = useState<Profile | null | undefined>(undefined);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [draft, setDraft] = useState({ fullName: "", discipline: "architect", licenseNumber: "", licenseState: "" });
 
   const refresh = useCallback(async () => {
     const res = await fetch("/api/v1/reviews").catch(() => null);
     if (res?.ok) {
       const data = (await res.json()) as { reviews: Review[] };
       setReviews(data.reviews);
+    }
+    const prof = await fetch("/api/v1/pro/profile").catch(() => null);
+    if (prof?.ok) {
+      const data = (await prof.json()) as { profile: Profile | null };
+      setProfile(data.profile);
     }
   }, []);
 
@@ -39,6 +57,28 @@ export default function ProPage() {
       if (user?.role === "professional") await refresh();
     });
   }, [refresh]);
+
+  async function saveProfile(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/v1/pro/profile", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(draft),
+      });
+      const body = (await res.json().catch(() => null)) as { profile?: Profile; error?: string } | null;
+      if (!res.ok || !body?.profile) {
+        setMessage(body?.error ?? "Saving the profile failed.");
+        return;
+      }
+      setProfile(body.profile);
+      setEditingProfile(false);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function unlock(e: React.FormEvent) {
     e.preventDefault();
@@ -116,6 +156,77 @@ export default function ProPage() {
             arrive with full Phase 2.
           </p>
           {message && <p className="status-warn">{message}</p>}
+
+          {profile !== undefined && (profile === null || editingProfile) && (
+            <form className="card" style={{ maxWidth: 620, marginBottom: "1rem" }} onSubmit={saveProfile}>
+              <h2 style={{ marginTop: 0 }}>Complete your professional profile</h2>
+              <p style={{ fontSize: "0.9rem", color: "var(--muted)" }}>
+                Approvals are recorded with these credentials, so they come before any review
+                authority. Credentials are stored as <strong>self-reported</strong> — automated
+                licensing-board verification is not available yet, and BuildSphere never applies a
+                seal on a professional&apos;s behalf.
+              </p>
+              <label className="field">
+                <span>Full name (as licensed)</span>
+                <input value={draft.fullName} onChange={(e) => setDraft({ ...draft, fullName: e.target.value })} required />
+              </label>
+              <div className="field-row">
+                <label className="field">
+                  <span>Discipline</span>
+                  <select value={draft.discipline} onChange={(e) => setDraft({ ...draft, discipline: e.target.value })}>
+                    {DISCIPLINES.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>License number</span>
+                  <input value={draft.licenseNumber} onChange={(e) => setDraft({ ...draft, licenseNumber: e.target.value })} required />
+                </label>
+                <label className="field">
+                  <span>License state</span>
+                  <input value={draft.licenseState} maxLength={2} placeholder="TX" onChange={(e) => setDraft({ ...draft, licenseState: e.target.value })} required />
+                </label>
+              </div>
+              <p style={{ display: "flex", gap: "0.75rem" }}>
+                <button className="btn" type="submit" disabled={busy}>
+                  {busy ? "Saving…" : "Save profile"}
+                </button>
+                {editingProfile && (
+                  <button className="btn secondary" type="button" onClick={() => setEditingProfile(false)}>
+                    Cancel
+                  </button>
+                )}
+              </p>
+            </form>
+          )}
+          {profile && !editingProfile && (
+            <p style={{ fontSize: "0.9rem" }}>
+              <strong>{profile.fullName}</strong> · {profile.discipline} · License {profile.licenseNumber} (
+              {profile.licenseState}) ·{" "}
+              <span className="status-warn" title="Automated licensing-board verification arrives with the jurisdiction integrations.">
+                self-reported
+              </span>{" "}
+              <button
+                className="btn secondary"
+                style={{ padding: "0.1rem 0.6rem", fontSize: "0.8rem" }}
+                type="button"
+                onClick={() => {
+                  setDraft({
+                    fullName: profile.fullName,
+                    discipline: profile.discipline,
+                    licenseNumber: profile.licenseNumber,
+                    licenseState: profile.licenseState,
+                  });
+                  setEditingProfile(true);
+                }}
+              >
+                Edit
+              </button>
+            </p>
+          )}
           {reviews.length === 0 ? (
             <div className="card">
               <p>No open reviews. Approved work leaves the queue.</p>
