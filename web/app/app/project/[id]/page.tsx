@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { ElevationView } from "@/components/ElevationView";
 import { FloorPlan } from "@/components/FloorPlan";
 import { MassingView } from "@/components/MassingView";
-import { ReviewSection } from "@/components/ReviewSection";
+import { ReviewSection, type Review } from "@/components/ReviewSection";
 import { SitePlanView } from "@/components/SitePlanView";
 import { Walkthrough } from "@/components/Walkthrough";
 import { DEFAULT_FINISHES, EXTERIOR_CATEGORIES, FINISH_CATEGORIES } from "@/lib/catalog/materials";
@@ -20,9 +20,63 @@ import {
   reviseConceptPackage,
   type ConceptPackage,
 } from "@/lib/engine/loop";
+import { buildPermitReadiness } from "@/lib/engine/permit";
+import { buildSitePlan } from "@/lib/engine/site";
 import { accountEmail, formatUsd, loadProject, saveProject, type StoredProject } from "@/lib/store";
 import { pushProject } from "@/lib/sync";
-import type { ValueEngineeringSuggestion } from "@/lib/types";
+import type { DesignCheckResult, ParametricModel, ValueEngineeringSuggestion } from "@/lib/types";
+
+const READINESS_CLASS: Record<string, string> = {
+  ready: "status-pass",
+  action_needed: "status-fail",
+  pending_professional: "status-warn",
+  future: "",
+};
+
+function ReadinessBlock({
+  model,
+  checkResults,
+  lotWidthFt,
+  lotDepthFt,
+  sqft,
+  review,
+}: {
+  model: ParametricModel;
+  checkResults: DesignCheckResult[];
+  lotWidthFt: number;
+  lotDepthFt: number;
+  sqft: number;
+  review: Review | null;
+}) {
+  const readiness = buildPermitReadiness({
+    levels: model.levels,
+    sqft,
+    checkResults,
+    site: buildSitePlan(model, lotWidthFt, lotDepthFt),
+    reviewStatus: review?.status ?? null,
+    reviewNote: review?.note ?? null,
+  });
+
+  return (
+    <div style={{ marginBottom: "1rem" }}>
+      <h3>Permit readiness</h3>
+      <p style={{ margin: "0 0 0.5rem" }} className={readiness.submittable ? "status-pass" : "status-warn"}>
+        {readiness.submittable
+          ? "Everything the platform covers today is ready — remaining items arrive with Phase 3."
+          : `${readiness.actionNeeded} item${readiness.actionNeeded === 1 ? "" : "s"} need action, ${readiness.pendingProfessional} waiting on a professional.`}
+      </p>
+      <ul style={{ paddingLeft: "1.2rem" }}>
+        {readiness.items.map((item) => (
+          <li key={item.key} style={{ marginBottom: "0.25rem" }}>
+            <strong className={READINESS_CLASS[item.status]}>{item.label}</strong>
+            {item.status === "future" && <span style={{ color: "var(--muted)" }}> (future)</span>}: {" "}
+            <span style={{ color: item.status === "future" ? "var(--muted)" : undefined }}>{item.detail}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 function scoreColor(score: number): string {
   if (score >= 80) return "var(--accent)";
@@ -58,6 +112,7 @@ function ConceptCard({
   onToggle,
   onRevise,
   onApplyVe,
+  review,
 }: {
   pkg: ConceptPackage;
   budgetCents: number | null;
@@ -67,6 +122,7 @@ function ConceptCard({
   onToggle: () => void;
   onRevise: (text: string) => Promise<string | null>;
   onApplyVe: (suggestion: ValueEngineeringSuggestion) => Promise<string | null>;
+  review: Review | null;
 }) {
   const [request, setRequest] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -242,6 +298,15 @@ function ConceptCard({
 
       {expanded && (
         <div style={{ marginTop: "1rem" }}>
+          <ReadinessBlock
+            model={model}
+            checkResults={checkResults}
+            lotWidthFt={lotWidthFt}
+            lotDepthFt={lotDepthFt}
+            sqft={sqft}
+            review={review}
+          />
+
           <h3>Design health checks</h3>
           <ul style={{ paddingLeft: "1.2rem" }}>
             {checkResults.map((r, i) => (
@@ -312,10 +377,22 @@ export default function ProjectPage() {
   const [entry, setEntry] = useState<StoredProject | null | undefined>(undefined);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [storageNotice, setStorageNotice] = useState<string | null>(null);
+  const [review, setReview] = useState<Review | null>(null);
+  const signedIn = typeof window !== "undefined" && Boolean(accountEmail());
 
   useEffect(() => {
     setEntry(loadProject(params.id));
   }, [params.id]);
+
+  useEffect(() => {
+    if (!signedIn) return;
+    void fetch("/api/v1/reviews")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { reviews: Review[] } | null) => {
+        setReview(data?.reviews.find((rv) => rv.projectId === params.id) ?? null);
+      })
+      .catch(() => null);
+  }, [params.id, signedIn]);
 
   if (entry === undefined) return null;
   if (entry === null)
@@ -519,7 +596,13 @@ export default function ProjectPage() {
         </div>
       </div>
 
-      <ReviewSection projectId={project.id} projectName={project.name} />
+      <ReviewSection
+        projectId={project.id}
+        projectName={project.name}
+        signedIn={signedIn}
+        review={review}
+        onReviewChange={setReview}
+      />
 
       {packages.map((pkg) => (
         <ConceptCard
@@ -532,6 +615,7 @@ export default function ProjectPage() {
           onToggle={() => setExpanded(expanded === pkg.concept.id ? null : pkg.concept.id)}
           onRevise={(text) => handleRevise(pkg.concept.id, text)}
           onApplyVe={(suggestion) => handleApplyVe(pkg.concept.id, suggestion)}
+          review={review}
         />
       ))}
     </main>
