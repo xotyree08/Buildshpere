@@ -12,7 +12,22 @@ import { EXTERIOR_CATEGORIES, FINISH_CATEGORIES, DEFAULT_FINISHES } from "@/lib/
 import { styleInfo } from "@/lib/catalog/styles";
 import { CONCEPT_DISCLAIMER, ESTIMATE_RANGE_CLAIM } from "@/lib/claims";
 import { sanitizeSetbacks } from "@/lib/engine/site";
-import { formatUsd, loadProject, type StoredProject } from "@/lib/store";
+import { accountEmail, formatUsd, loadProject, type StoredProject } from "@/lib/store";
+
+interface ReviewRecord {
+  projectId: string;
+  status: string;
+  note: string | null;
+  updatedAt: string;
+  professionalEmail: string | null;
+  professional?: {
+    fullName: string;
+    discipline: string;
+    licenseNumber: string;
+    licenseState: string;
+    credentialStatus: string;
+  };
+}
 
 /**
  * The Design Report: a print-ready deliverable of everything the design
@@ -22,9 +37,18 @@ import { formatUsd, loadProject, type StoredProject } from "@/lib/store";
 export default function ReportPage() {
   const params = useParams<{ id: string }>();
   const [entry, setEntry] = useState<StoredProject | null | undefined>(undefined);
+  const [review, setReview] = useState<ReviewRecord | null>(null);
 
   useEffect(() => {
     setEntry(loadProject(params.id));
+    if (accountEmail()) {
+      void fetch("/api/v1/reviews")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data: { reviews: ReviewRecord[] } | null) => {
+          setReview(data?.reviews.find((rv) => rv.projectId === params.id) ?? null);
+        })
+        .catch(() => null);
+    }
   }, [params.id]);
 
   if (entry === undefined) return null;
@@ -70,6 +94,31 @@ export default function ReportPage() {
         </p>
         <p style={{ color: "var(--muted)", fontSize: "0.9rem" }}>{CONCEPT_DISCLAIMER}</p>
       </header>
+
+      {review?.status === "approved" && (
+        <section className="card" style={{ marginBottom: "1rem" }}>
+          <h3 style={{ marginTop: 0 }}>Professional review record</h3>
+          <p style={{ margin: 0 }}>
+            Reviewed and approved by{" "}
+            <strong>{review.professional?.fullName ?? review.professionalEmail ?? "a professional"}</strong>
+            {review.professional && (
+              <>
+                {" "}
+                ({review.professional.discipline}, License {review.professional.licenseNumber} ·{" "}
+                {review.professional.licenseState},{" "}
+                {review.professional.credentialStatus.replace("_", "-")} credentials)
+              </>
+            )}{" "}
+            on {new Date(review.updatedAt).toLocaleDateString()}.
+            {review.note && <> Reviewer&apos;s note: {review.note}</>}
+          </p>
+          <p style={{ margin: "0.35rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>
+            This records a professional review of the concept. It is not a professional seal —
+            sealing and stamping happen under the professional&apos;s own authority, outside
+            BuildSphere.
+          </p>
+        </section>
+      )}
 
       {entry.inspiration?.analysis?.styleKey && (
         <section>

@@ -12,7 +12,7 @@ export async function GET() {
   if (isResponse(user)) return user;
 
   const reviews =
-    user.role === "professional" ? await listOpenReviews(db) : await listReviewsForOwner(db, user.id);
+    user.role === "professional" ? await listOpenReviews(db, user.id) : await listReviewsForOwner(db, user.id);
   return NextResponse.json({ role: user.role, reviews });
 }
 
