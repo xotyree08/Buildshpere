@@ -27,6 +27,7 @@ Rather than acting as a simple floor plan generator, BuildSphere functions as a 
 | [`docs/systems/`](docs/systems) | Per-system specs for all eight spheres |
 | [`docs/MVP_PHASE1.md`](docs/MVP_PHASE1.md) | Phase 1 MVP scope, core data model, and API sketch |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Architecture decision record |
+| [`docs/LESSONS_LEARNED.md`](docs/LESSONS_LEARNED.md) | Failure register from the previous product — twelve binding rules (ADR-011) |
 | [`web/`](web) | Next.js (App Router, TypeScript) web app — the MVP surface |
 | [`mobile/`](mobile) | Flutter homeowner app shell |
 

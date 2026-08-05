@@ -43,11 +43,48 @@ export function loadProject(id: string): StoredProject | null {
   return loadProjects().find((p) => p.project.id === id) ?? null;
 }
 
-export function saveProject(entry: StoredProject): void {
-  if (!isBrowser()) return;
+export type SaveResult =
+  | { ok: true; warning?: string }
+  | { ok: false; error: string };
+
+/** Strip inspiration photos (the large payloads) but keep their analyses. */
+export function shedPhotos(projects: StoredProject[]): StoredProject[] {
+  return projects.map((p) =>
+    p.inspiration?.photoDataUrl
+      ? { ...p, inspiration: { ...p.inspiration, photoDataUrl: "" } }
+      : p,
+  );
+}
+
+/**
+ * Persist a project, never silently (LESSONS_LEARNED.md L2). A full
+ * localStorage — reachable now that inspiration photos are stored — degrades
+ * by shedding photos before it ever loses a project, and says so.
+ */
+export function saveProject(entry: StoredProject): SaveResult {
+  if (!isBrowser()) return { ok: false, error: "Storage is unavailable outside the browser." };
   const all = loadProjects().filter((p) => p.project.id !== entry.project.id);
   all.unshift(entry);
-  window.localStorage.setItem(KEY, JSON.stringify(all));
+  try {
+    window.localStorage.setItem(KEY, JSON.stringify(all));
+    return { ok: true };
+  } catch {
+    // Quota exceeded — retry without the heavy photo payloads.
+    try {
+      window.localStorage.setItem(KEY, JSON.stringify(shedPhotos(all)));
+      return {
+        ok: true,
+        warning:
+          "Local storage was full, so inspiration photos were removed to keep your projects. Detected styles are preserved.",
+      };
+    } catch {
+      return {
+        ok: false,
+        error:
+          "This browser's local storage is full — the project could not be saved. Delete an old project and try again.",
+      };
+    }
+  }
 }
 
 export function deleteProject(id: string): void {

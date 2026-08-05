@@ -13,4 +13,9 @@ npm run typecheck
 - `lib/spheres.ts` — the eight systems, used by the landing page
 - `app/api/health` — liveness + config-presence endpoint (no secrets)
 
-Environment (all optional until the corresponding feature lands): `DATABASE_URL`, `REDIS_URL`, `AI_API_KEY`, `S3_BUCKET`.
+Environment (all optional until the corresponding feature lands): `DATABASE_URL`, `REDIS_URL`, `AI_API_KEY` (or `ANTHROPIC_API_KEY` — enables inspiration-photo analysis), `S3_BUCKET`.
+
+> **`NEXT_PUBLIC_*` vars are inlined at build time** — changing one in the
+> deployment requires a redeploy to take effect
+> ([LESSONS_LEARNED.md](../docs/LESSONS_LEARNED.md) L10). `/api/health`
+> reports every integration with the exact fix when unconfigured.
