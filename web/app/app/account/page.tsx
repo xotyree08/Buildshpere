@@ -208,6 +208,11 @@ export default function AccountPage() {
             >
               {mode === "signup" ? "I have an account" : "Create an account"}
             </button>
+            {mode === "signin" && (
+              <a href="/reset" style={{ fontSize: "0.85rem" }}>
+                Forgot password?
+              </a>
+            )}
           </p>
           {message && <p className="status-warn">{message}</p>}
         </form>

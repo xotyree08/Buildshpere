@@ -114,6 +114,15 @@ create table if not exists audit_events (
   created_at timestamp not null
 );
 create index if not exists audit_events_actor on audit_events(actor_id, created_at);
+
+create table if not exists password_resets (
+  token_hash text primary key,
+  user_id text not null,
+  created_at timestamp not null,
+  expires_at timestamp not null,
+  used_at timestamp
+);
+create index if not exists password_resets_user on password_resets(user_id);
 `;
 
 /** Minimal query surface both pg.Pool and the test engine satisfy. */
@@ -210,6 +219,16 @@ export async function ensureSchema(db: Db): Promise<void> {
   );
   if (invitedCol.rows.length === 0) {
     await db.query("alter table review_requests add column invited text not null default 'open'");
+  }
+  const resets = await db.query(
+    "select 1 from information_schema.tables where table_name = 'password_resets'",
+  );
+  if (resets.rows.length === 0) {
+    const start = SCHEMA_SQL.indexOf("create table if not exists password_resets");
+    for (const statement of SCHEMA_SQL.slice(start).split(";")) {
+      const sql = statement.trim();
+      if (sql) await db.query(sql);
+    }
   }
 }
 
