@@ -436,3 +436,49 @@ table.lineitems td:last-child, table.lineitems th:last-child { text-align: right
   main { padding: 2.2rem 1rem; }
   .report-visuals { flex-wrap: wrap; }
 }
+
+/* ---------- Moving pearl background ---------- */
+.folio { position: relative; isolation: isolate; }
+.folio::before {
+  content: "";
+  position: fixed;
+  inset: -10%;
+  z-index: -1;
+  background:
+    radial-gradient(60% 80% at 18% 12%, rgba(206, 172, 122, 0.22), transparent 62%),
+    radial-gradient(52% 72% at 82% 18%, rgba(168, 196, 218, 0.20), transparent 62%),
+    radial-gradient(56% 76% at 72% 86%, rgba(216, 176, 190, 0.18), transparent 62%),
+    radial-gradient(48% 68% at 12% 78%, rgba(190, 206, 176, 0.16), transparent 62%),
+    var(--bg);
+  background-size: 170% 170%, 160% 160%, 165% 165%, 160% 160%, 100% 100%;
+  background-repeat: no-repeat;
+  animation: pearl-drift 28s ease-in-out infinite alternate;
+}
+@keyframes pearl-drift {
+  0% {
+    background-position: 0% 0%, 100% 0%, 100% 100%, 0% 100%, 0 0;
+  }
+  50% {
+    background-position: 40% 30%, 60% 45%, 55% 60%, 35% 55%, 0 0;
+  }
+  100% {
+    background-position: 20% 65%, 85% 70%, 30% 25%, 70% 15%, 0 0;
+  }
+}
+@media (prefers-color-scheme: dark) {
+  .folio::before {
+    background:
+      radial-gradient(60% 80% at 18% 12%, rgba(201, 169, 106, 0.10), transparent 62%),
+      radial-gradient(52% 72% at 82% 18%, rgba(120, 160, 196, 0.09), transparent 62%),
+      radial-gradient(56% 76% at 72% 86%, rgba(196, 140, 160, 0.08), transparent 62%),
+      radial-gradient(48% 68% at 12% 78%, rgba(140, 170, 130, 0.07), transparent 62%),
+      var(--bg);
+    background-size: 170% 170%, 160% 160%, 165% 165%, 160% 160%, 100% 100%;
+    background-repeat: no-repeat;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .folio::before { animation: none; }
+}
+/* The ink band and frames float above the pearl untouched. */
+.folio .frame, .folio .band { position: relative; }
