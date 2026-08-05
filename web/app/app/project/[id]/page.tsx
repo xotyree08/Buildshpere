@@ -9,6 +9,7 @@ import { FloorPlan } from "@/components/FloorPlan";
 import { MassingView } from "@/components/MassingView";
 import { ReviewSection, type Review } from "@/components/ReviewSection";
 import { SitePlanView } from "@/components/SitePlanView";
+import { Viewer3D } from "@/components/Viewer3D";
 import { Walkthrough } from "@/components/Walkthrough";
 import { DEFAULT_FINISHES, EXTERIOR_CATEGORIES, FINISH_CATEGORIES, type FinishSelections } from "@/lib/catalog/materials";
 import { styleInfo } from "@/lib/catalog/styles";
@@ -153,7 +154,7 @@ function ConceptCard({
   const [request, setRequest] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [revising, setRevising] = useState(false);
-  const [view, setView] = useState<"plan" | "massing" | "elevations" | "site" | "walkthrough">("plan");
+  const [view, setView] = useState<"plan" | "massing" | "viewer3d" | "elevations" | "site" | "walkthrough">("plan");
 
   const { concept } = pkg;
   const history = pkg.revisions ?? [];
@@ -223,6 +224,13 @@ function ConceptCard({
           3D massing
         </button>
         <button
+          className={view === "viewer3d" ? "btn" : "btn secondary"}
+          onClick={() => setView("viewer3d")}
+          type="button"
+        >
+          3D viewer
+        </button>
+        <button
           className={view === "elevations" ? "btn" : "btn secondary"}
           onClick={() => setView("elevations")}
           type="button"
@@ -258,6 +266,10 @@ function ConceptCard({
           <p style={{ margin: "0.25rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>
             Massing preview — photorealistic rendering arrives with the ModelSphere pipeline.
           </p>
+        </div>
+      ) : view === "viewer3d" ? (
+        <div style={{ margin: "0.75rem 0" }}>
+          <Viewer3D model={model} style={concept.style} finishes={finishes} />
         </div>
       ) : view === "elevations" ? (
         <div style={{ margin: "0.75rem 0", display: "flex", gap: "1.5rem", flexWrap: "wrap" }}>
