@@ -21,6 +21,8 @@ export interface StoredProject {
     photoDataUrl: string;
     analysis: InspirationAnalysis | null;
   };
+  /** Last local save, ms epoch — drives newest-wins sync merge. */
+  savedAt?: number;
 }
 
 const KEY = "buildsphere.projects.v1";
@@ -63,6 +65,7 @@ export function shedPhotos(projects: StoredProject[]): StoredProject[] {
  */
 export function saveProject(entry: StoredProject): SaveResult {
   if (!isBrowser()) return { ok: false, error: "Storage is unavailable outside the browser." };
+  entry.savedAt = Date.now();
   const all = loadProjects().filter((p) => p.project.id !== entry.project.id);
   all.unshift(entry);
   try {
@@ -90,6 +93,36 @@ export function saveProject(entry: StoredProject): SaveResult {
 export function deleteProject(id: string): void {
   if (!isBrowser()) return;
   window.localStorage.setItem(KEY, JSON.stringify(loadProjects().filter((p) => p.project.id !== id)));
+}
+
+/** Replace the whole local set (used by sync after a merge). */
+export function replaceAllProjects(projects: StoredProject[]): SaveResult {
+  if (!isBrowser()) return { ok: false, error: "Storage is unavailable outside the browser." };
+  try {
+    window.localStorage.setItem(KEY, JSON.stringify(projects));
+    return { ok: true };
+  } catch {
+    try {
+      window.localStorage.setItem(KEY, JSON.stringify(shedPhotos(projects)));
+      return { ok: true, warning: "Local storage was full; inspiration photos were removed to fit the synced projects." };
+    } catch {
+      return { ok: false, error: "This browser's local storage is full — synced projects could not be written." };
+    }
+  }
+}
+
+const ACCOUNT_KEY = "buildsphere.account.v1";
+
+/** Signed-in marker for the auto-sync save path (source of truth is the cookie). */
+export function accountEmail(): string | null {
+  if (!isBrowser()) return null;
+  return window.localStorage.getItem(ACCOUNT_KEY);
+}
+
+export function setAccountEmail(email: string | null): void {
+  if (!isBrowser()) return;
+  if (email) window.localStorage.setItem(ACCOUNT_KEY, email);
+  else window.localStorage.removeItem(ACCOUNT_KEY);
 }
 
 export function newId(): string {

@@ -16,9 +16,12 @@ export default function ProjectsPage() {
     <main>
       <div className="topbar">
         <h1>Your Projects</h1>
-        <Link className="btn" href="/app/new">
-          New home design
-        </Link>
+        <span style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+          <Link href="/app/account">Account</Link>
+          <Link className="btn" href="/app/new">
+            New home design
+          </Link>
+        </span>
       </div>
       {projects === null ? null : projects.length === 0 ? (
         <div className="card">
