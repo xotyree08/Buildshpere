@@ -113,6 +113,41 @@ export default function AccountPage() {
             </button>
           </p>
           {message && <p className="status-warn">{message}</p>}
+          <p style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+            <a className="btn secondary" href="/api/v1/account/export" download>
+              Download my data
+            </a>
+            <button
+              className="btn secondary"
+              disabled={busy}
+              onClick={async () => {
+                const password = window.prompt(
+                  "Deleting your account removes every synced project, share link, and profile permanently. Local copies in this browser stay. Enter your password to confirm:",
+                );
+                if (password === null) return;
+                setBusy(true);
+                try {
+                  const res = await fetch("/api/v1/account/delete", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ password }),
+                  });
+                  const body = (await res.json().catch(() => null)) as { error?: string } | null;
+                  if (!res.ok) {
+                    setMessage(body?.error ?? "Deletion failed.");
+                    return;
+                  }
+                  setAccountEmail(null);
+                  setUser(null);
+                  setMessage("Account deleted. Projects in this browser are untouched.");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Delete account…
+            </button>
+          </p>
           {events && events.length > 0 && (
             <>
               <h2 style={{ fontSize: "1rem", marginBottom: "0.25rem" }}>Recent account activity</h2>
