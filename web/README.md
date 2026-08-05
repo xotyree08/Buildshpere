@@ -13,7 +13,7 @@ npm run typecheck
 - `lib/spheres.ts` — the eight systems, used by the landing page
 - `app/api/health` — liveness + config-presence endpoint (no secrets)
 
-Environment (all optional until the corresponding feature lands): `DATABASE_URL`, `REDIS_URL`, `AI_API_KEY` (or `ANTHROPIC_API_KEY` — enables inspiration-photo analysis), `S3_BUCKET`.
+Environment (all optional until the corresponding feature lands): `DATABASE_URL`, `REDIS_URL`, `AI_API_KEY` (or `ANTHROPIC_API_KEY` — enables inspiration-photo analysis, AI revision interpretation, and the interior stylist), `RESEND_API_KEY` + `EMAIL_FROM` (password-reset email), `APPLE_SHARED_SECRET` / `GOOGLE_SERVICE_ACCOUNT_JSON` + `ANDROID_PACKAGE_NAME` (store receipt validation), `S3_BUCKET`.
 
 > **`NEXT_PUBLIC_*` vars are inlined at build time** — changing one in the
 > deployment requires a redeploy to take effect
@@ -45,10 +45,12 @@ node .next/standalone/server.js   # PORT=3000 by default
 
 Set in the deployment environment: `DATABASE_URL` (enables accounts,
 sync, professional reviews, and share links — see below), `AI_API_KEY`
-(enables inspiration-photo analysis and AI revision interpretation), and
-`PROFESSIONAL_ACCESS_CODE` (enables professional role upgrades). All are
-optional; every feature degrades honestly without its var, and
-`/api/health` names the exact fix for anything unconfigured.
+(enables inspiration-photo analysis, AI revision interpretation, and the
+interior stylist), `RESEND_API_KEY` + `EMAIL_FROM` (password-reset
+email), and `PROFESSIONAL_ACCESS_CODE` (enables professional role
+upgrades). All are optional; every feature degrades honestly without its
+var, and `/api/health` names the exact fix for anything unconfigured.
+**Adding or changing any env var requires a redeploy to take effect.**
 
 ### Enabling accounts & sync (production database)
 
