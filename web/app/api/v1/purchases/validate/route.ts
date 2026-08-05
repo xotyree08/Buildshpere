@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { isResponse, requireDb, requireUser } from "@/lib/server/http";
+import { recordAudit } from "@/lib/server/audit";
 import { validateAndGrant, type ValidateRequest } from "@/lib/server/payments";
 import type { FetchLike } from "@/lib/server/payments/apple";
 
@@ -48,5 +49,6 @@ export async function POST(req: Request) {
   if (!outcome.granted) {
     return NextResponse.json({ granted: false, error: outcome.error }, { status: 409 });
   }
+  await recordAudit(db, user.id, "entitlement.granted", body.productId, body.platform);
   return NextResponse.json({ granted: true });
 }

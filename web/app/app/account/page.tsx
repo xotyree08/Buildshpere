@@ -6,6 +6,14 @@ import { useEffect, useState } from "react";
 import { fetchMe, login, logout, signup, syncNow, type AuthUser } from "@/lib/sync";
 import { setAccountEmail } from "@/lib/store";
 
+interface AuditEvent {
+  id: string;
+  event: string;
+  subject: string | null;
+  detail: string | null;
+  createdAt: string;
+}
+
 export default function AccountPage() {
   const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
@@ -13,6 +21,7 @@ export default function AccountPage() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [events, setEvents] = useState<AuditEvent[] | null>(null);
 
   useEffect(() => {
     void fetchMe().then((me) => {
@@ -20,6 +29,14 @@ export default function AccountPage() {
       setAccountEmail(me?.email ?? null);
     });
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    void fetch("/api/v1/audit")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { events: AuditEvent[] } | null) => setEvents(data?.events ?? null))
+      .catch(() => null);
+  }, [user]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -96,6 +113,29 @@ export default function AccountPage() {
             </button>
           </p>
           {message && <p className="status-warn">{message}</p>}
+          {events && events.length > 0 && (
+            <>
+              <h2 style={{ fontSize: "1rem", marginBottom: "0.25rem" }}>Recent account activity</h2>
+              <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 0.5rem" }}>
+                The append-only audit trail — every sign-in, sync, share, review, and purchase on
+                this account.
+              </p>
+              <ul style={{ listStyle: "none", margin: 0, padding: 0, fontSize: "0.85rem" }}>
+                {events.slice(0, 15).map((ev) => (
+                  <li key={ev.id} style={{ padding: "0.15rem 0", display: "flex", gap: "0.75rem" }}>
+                    <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>
+                      {new Date(ev.createdAt).toLocaleString()}
+                    </span>
+                    <span>
+                      {ev.event.replace(/[._]/g, " ")}
+                      {ev.subject ? ` · ${ev.subject}` : ""}
+                      {ev.detail ? ` (${ev.detail})` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
       ) : (
         <form className="card" style={{ maxWidth: 520 }} onSubmit={submit}>

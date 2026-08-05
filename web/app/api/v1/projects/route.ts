@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { recordAudit } from "@/lib/server/audit";
 import { deleteProject, listProjects, upsertProject } from "@/lib/server/projects";
 import { isResponse, requireDb, requireUser } from "@/lib/server/http";
 import type { StoredProject } from "@/lib/store";
@@ -37,6 +38,7 @@ export async function PUT(req: Request) {
     // L2: a failed write must never look like a success.
     return NextResponse.json({ error: "Saving to the server failed — your local copy is intact." }, { status: 500 });
   }
+  await recordAudit(db, user.id, "project.upsert", entry.project.id, entry.project.name);
   return NextResponse.json({ ok: true });
 }
 
@@ -49,5 +51,6 @@ export async function DELETE(req: Request) {
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id query parameter is required." }, { status: 422 });
   await deleteProject(db, user.id, id);
+  await recordAudit(db, user.id, "project.delete", id);
   return NextResponse.json({ ok: true });
 }

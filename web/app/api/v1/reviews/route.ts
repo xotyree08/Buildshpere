@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { isResponse, requireDb, requireUser } from "@/lib/server/http";
+import { recordAudit } from "@/lib/server/audit";
 import { listOpenReviews, listReviewsForOwner, requestReview } from "@/lib/server/reviews";
 
 /** Owner: their reviews. Professional: the open queue plus their claims. */
@@ -33,5 +34,6 @@ export async function POST(req: Request) {
 
   const result = await requestReview(db, user, body.projectId, body.projectName.slice(0, 200));
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
+  await recordAudit(db, user.id, "review.requested", body.projectId);
   return NextResponse.json({ review: result.review });
 }

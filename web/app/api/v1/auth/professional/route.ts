@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { recordAudit } from "@/lib/server/audit";
 import { setRole } from "@/lib/server/auth";
 import { isResponse, requireDb, requireUser } from "@/lib/server/http";
 
@@ -33,5 +34,6 @@ export async function POST(req: Request) {
   }
 
   await setRole(db, user.id, "professional");
+  await recordAudit(db, user.id, "auth.role_change", null, "homeowner -> professional (access code)");
   return NextResponse.json({ ok: true, role: "professional" });
 }
