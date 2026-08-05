@@ -24,6 +24,11 @@ Environment (all optional until the corresponding feature lands): `DATABASE_URL`
 
 Two equally supported paths — pick whichever host you already have:
 
+The production domain is **onbuildsphere.com** (ADR-013). After deploying
+by either path, add the custom domain in the host's dashboard and point
+the domain's DNS at it (for Vercel: an A record to `76.76.21.21` or a
+CNAME to `cname.vercel-dns.com` — the dashboard shows the exact records).
+
 **Vercel (fastest):** import the repo, set the root directory to `web/`,
 add the env vars below, deploy. Vercel builds and runs Next natively
 (it ignores the standalone setting).

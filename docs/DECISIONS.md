@@ -82,3 +82,22 @@ Email confirmation requires an email provider and is a deploy-time gate
 (L7) tracked in LESSONS_LEARNED — the schema carries email_confirmed_at
 from day one. Verified against an in-memory Postgres engine (pg-mem) in CI;
 first deploy against a real host re-runs the same suite via DATABASE_URL.
+
+## ADR-013: Canonical domain and application identifiers — accepted
+
+The production domain is **onbuildsphere.com** (founder decision,
+2026-08-05). Everything that derives from the domain is now locked:
+
+- Web canonical URL and metadata base: `https://onbuildsphere.com`.
+- Mobile application id / bundle id: **`com.onbuildsphere.app`** for both
+  stores. Per LESSONS_LEARNED.md L6 this can never change after the first
+  store upload — platform folders must be generated with
+  `--org com.onbuildsphere`, and the L6 "no upload until the domain is
+  final" gate is now SATISFIED.
+- Server payment env: `ANDROID_PACKAGE_NAME=com.onbuildsphere.app`.
+- Mobile builds point at the deployment with
+  `--dart-define=BUILDSPHERE_API=https://onbuildsphere.com`.
+
+No code hardcodes the domain for request handling (share links use the
+request origin; the API base is injected at build time), so staging
+deployments keep working unchanged.
