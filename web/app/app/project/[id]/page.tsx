@@ -9,6 +9,7 @@ import { FloorPlan } from "@/components/FloorPlan";
 import { MassingView } from "@/components/MassingView";
 import { ReviewSection } from "@/components/ReviewSection";
 import { SitePlanView } from "@/components/SitePlanView";
+import { Walkthrough } from "@/components/Walkthrough";
 import { DEFAULT_FINISHES, EXTERIOR_CATEGORIES, FINISH_CATEGORIES } from "@/lib/catalog/materials";
 import { styleInfo } from "@/lib/catalog/styles";
 import { CONCEPT_DISCLAIMER, ESTIMATE_RANGE_CLAIM } from "@/lib/claims";
@@ -70,7 +71,7 @@ function ConceptCard({
   const [request, setRequest] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [revising, setRevising] = useState(false);
-  const [view, setView] = useState<"plan" | "massing" | "elevations" | "site">("plan");
+  const [view, setView] = useState<"plan" | "massing" | "elevations" | "site" | "walkthrough">("plan");
 
   const { concept } = pkg;
   const history = pkg.revisions ?? [];
@@ -153,6 +154,13 @@ function ConceptCard({
         >
           Site
         </button>
+        <button
+          className={view === "walkthrough" ? "btn" : "btn secondary"}
+          onClick={() => setView("walkthrough")}
+          type="button"
+        >
+          Walkthrough
+        </button>
       </p>
 
       {view === "plan" ? (
@@ -180,9 +188,13 @@ function ConceptCard({
             <ElevationView model={model} style={concept.style} direction="east" />
           </div>
         </div>
-      ) : (
+      ) : view === "site" ? (
         <div style={{ margin: "0.75rem 0", maxWidth: 420 }}>
           <SitePlanView model={model} lotWidthFt={lotWidthFt} lotDepthFt={lotDepthFt} />
+        </div>
+      ) : (
+        <div style={{ margin: "0.75rem 0" }}>
+          <Walkthrough model={model} />
         </div>
       )}
 
