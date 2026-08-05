@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { recordAudit } from "@/lib/server/audit";
+import { loginThrottled, THROTTLE_MESSAGE } from "@/lib/server/privacy";
 import { authenticate, createSession, SESSION_DAYS } from "@/lib/server/auth";
 import { isResponse, requireDb, setSessionCookie } from "@/lib/server/http";
 
@@ -16,6 +17,10 @@ export async function POST(req: Request) {
   }
   if (typeof body.email !== "string" || typeof body.password !== "string") {
     return NextResponse.json({ error: "email and password are required." }, { status: 422 });
+  }
+
+  if (await loginThrottled(db, body.email, Date.now())) {
+    return NextResponse.json({ error: THROTTLE_MESSAGE }, { status: 429 });
   }
 
   const user = await authenticate(db, body.email, body.password);
