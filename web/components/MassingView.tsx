@@ -1,4 +1,6 @@
 import { buildIsoScene, type FaceKind } from "@/lib/engine/iso";
+import type { FinishSelections } from "@/lib/catalog/materials";
+import { exteriorPalette, type ExteriorPalette } from "@/lib/render/palette";
 import type { HomeStyle, ParametricModel } from "@/lib/types";
 
 const TOP_FILLS: Record<string, string> = {
@@ -18,18 +20,26 @@ const TOP_FILLS: Record<string, string> = {
   outdoor: "var(--plan-outdoor)",
 };
 
-/** Side faces darken the room's top fill for depth; south lighter than east. */
-function faceFill(roomKind: string, face: FaceKind): string {
-  if (face === "roof") return "var(--plan-roof)";
-  if (face === "roof_shade") return "color-mix(in srgb, var(--plan-roof), var(--fg) 30%)";
-  const base = TOP_FILLS[roomKind] ?? "var(--plan-hall)";
-  if (face === "top") return base;
-  const shade = face === "south" ? "22%" : "38%";
-  return `color-mix(in srgb, ${base}, var(--fg) ${shade})`;
+/** Tops keep the room-color legend for readability; exterior faces show the
+ * selected materials — siding on walls (sun side lighter), roofing on roofs. */
+function faceFill(roomKind: string, face: FaceKind, palette: ExteriorPalette): string {
+  if (face === "roof") return palette.roof;
+  if (face === "roof_shade") return palette.roofShade;
+  if (face === "top") return TOP_FILLS[roomKind] ?? "var(--plan-hall)";
+  return face === "south" ? palette.wall : palette.wallShade;
 }
 
-export function MassingView({ model, style }: { model: ParametricModel; style?: HomeStyle }) {
+export function MassingView({
+  model,
+  style,
+  finishes,
+}: {
+  model: ParametricModel;
+  style?: HomeStyle;
+  finishes?: FinishSelections;
+}) {
   const scene = buildIsoScene(model, style);
+  const palette = exteriorPalette(finishes);
   const pad = 3;
 
   return (
@@ -43,7 +53,7 @@ export function MassingView({ model, style }: { model: ParametricModel; style?: 
         <polygon
           key={`${f.roomKey}-${f.kind}-${i}`}
           points={f.points.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(" ")}
-          fill={faceFill(f.roomKind, f.kind)}
+          fill={faceFill(f.roomKind, f.kind, palette)}
           stroke="var(--fg)"
           strokeWidth={0.18}
           strokeLinejoin="round"

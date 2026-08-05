@@ -104,17 +104,17 @@ export default function SharedProjectPage() {
               ))}
               <div style={{ flex: 1 }}>
                 <p style={{ fontSize: "0.8rem", margin: "0 0 0.25rem" }}>Massing</p>
-                <MassingView model={model} style={pkg.concept.style} />
+                <MassingView model={model} style={pkg.concept.style} finishes={entry.finishes} />
               </div>
             </div>
             <div className="report-visuals">
               <div style={{ flex: 1 }}>
                 <p style={{ fontSize: "0.8rem", margin: "0 0 0.25rem" }}>Front elevation</p>
-                <ElevationView model={model} style={pkg.concept.style} direction="north" />
+                <ElevationView model={model} style={pkg.concept.style} direction="north" finishes={entry.finishes} />
               </div>
               <div style={{ flex: 1 }}>
                 <p style={{ fontSize: "0.8rem", margin: "0 0 0.25rem" }}>Side elevation</p>
-                <ElevationView model={model} style={pkg.concept.style} direction="east" />
+                <ElevationView model={model} style={pkg.concept.style} direction="east" finishes={entry.finishes} />
               </div>
               <div style={{ flex: 1 }}>
                 <p style={{ fontSize: "0.8rem", margin: "0 0 0.25rem" }}>Site plan</p>
