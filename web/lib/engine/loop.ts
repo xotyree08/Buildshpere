@@ -55,7 +55,7 @@ export function runDesignLoop(brief: DesignBrief, opts: LoopOptions): ConceptPac
       healthScore: health.score,
       checkResults: health.results,
       estimate,
-      veSuggestions: valueEngineering(estimate, opts.budgetCents, concept.model),
+      veSuggestions: valueEngineering(estimate, opts.budgetCents, concept.model, finishes),
     };
   });
 }
@@ -73,13 +73,13 @@ export function repriceConceptPackage(
   return {
     ...pkg,
     estimate: baseEstimate,
-    veSuggestions: valueEngineering(baseEstimate, opts.budgetCents, pkg.concept.model),
+    veSuggestions: valueEngineering(baseEstimate, opts.budgetCents, pkg.concept.model, finishes),
     revisions: (pkg.revisions ?? []).map((rev) => {
       const estimate = estimateRevision(rev.revision.model, rev.revision.id, opts.regionCode, finishes);
       return {
         ...rev,
         estimate,
-        veSuggestions: valueEngineering(estimate, opts.budgetCents, rev.revision.model),
+        veSuggestions: valueEngineering(estimate, opts.budgetCents, rev.revision.model, finishes),
       };
     }),
   };
@@ -145,7 +145,7 @@ export function applyOpsToConceptPackage(
       healthScore: health.score,
       checkResults: health.results,
       estimate,
-      veSuggestions: valueEngineering(estimate, opts.budgetCents, model),
+      veSuggestions: valueEngineering(estimate, opts.budgetCents, model, finishes),
       rejected,
     },
     unrecognized,

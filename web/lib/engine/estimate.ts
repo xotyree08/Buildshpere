@@ -14,6 +14,7 @@ import type {
   ParametricModel,
   ValueEngineeringSuggestion,
 } from "../types";
+import { applyRevision } from "./revise";
 import {
   APPLIANCES,
   CABINETS,
@@ -211,42 +212,101 @@ export function estimateRevision(
   };
 }
 
-/** Value engineering: ranked savings paths when the estimate exceeds budget. */
+/** Downgrade ladders: each category's options, cheapest first. */
+const DOWNGRADE_LADDERS: {
+  field: keyof FinishSelections;
+  label: string;
+  options: { key: string; label: string }[];
+  impact: "low" | "med";
+}[] = [
+  { field: "flooring", label: "flooring", options: FLOORING, impact: "low" },
+  { field: "countertops", label: "countertops", options: COUNTERTOPS, impact: "low" },
+  { field: "cabinets", label: "cabinets", options: CABINETS, impact: "low" },
+  { field: "appliances", label: "appliances", options: APPLIANCES, impact: "low" },
+  { field: "siding", label: "siding", options: SIDING, impact: "med" },
+  { field: "roofing", label: "roofing", options: ROOFING, impact: "med" },
+  { field: "windows", label: "windows", options: WINDOWS, impact: "med" },
+];
+
+/** Rooms worth deferring when over budget, in preference order. */
+const DEFERRABLE: { kind: string; label: string }[] = [
+  { kind: "theater", label: "theater" },
+  { kind: "gym", label: "gym" },
+  { kind: "outdoor", label: "outdoor space" },
+];
+
+/**
+ * Value engineering with EXACT savings: every actionable suggestion is
+ * priced by actually re-running the estimate with the change applied —
+ * a finish stepped down one option, or a deferrable room removed — so
+ * "saves $X" is the real delta, not a heuristic. Suggestions without a
+ * safe automatic action stay advisory (no `action`).
+ */
 export function valueEngineering(
   estimate: Estimate,
   budgetCents: number | null,
   model: ParametricModel,
+  finishes: EstimateFinishes = {},
 ): ValueEngineeringSuggestion[] {
   if (budgetCents == null || estimate.totalCents <= budgetCents) return [];
-  const overCents = estimate.totalCents - budgetCents;
   const suggestions: ValueEngineeringSuggestion[] = [];
   let i = 0;
-  const add = (description: string, savingsCents: number, designImpact: "low" | "med" | "high") => {
-    if (savingsCents > 0)
-      suggestions.push({
-        id: `ve-${i++}`,
-        estimateId: estimate.id,
-        description,
-        savingsCents: Math.round(savingsCents),
-        designImpact,
-        status: "proposed",
-      });
-  };
 
-  add("Trim overall footprint by 5% (proportional room reduction)", estimate.totalCents * 0.045, "med");
+  // Finish downgrades: one step down the ladder from the current selection.
+  for (const ladder of DOWNGRADE_LADDERS) {
+    const currentKey = (finishes[ladder.field] as string | undefined) ?? DEFAULT_FINISHES[ladder.field];
+    const idx = ladder.options.findIndex((o) => o.key === currentKey);
+    if (idx <= 0) continue; // unknown or already the cheapest
+    const cheaper = ladder.options[idx - 1];
+    const current = ladder.options[idx];
+    const candidate = estimateRevision(model, "ve-candidate", estimate.regionCode, {
+      ...finishes,
+      [ladder.field]: cheaper.key,
+    });
+    const savings = estimate.totalCents - candidate.totalCents;
+    if (savings <= 0) continue;
+    suggestions.push({
+      id: `ve-${i++}`,
+      estimateId: estimate.id,
+      description: `Step ${ladder.label} down from ${current.label} to ${cheaper.label}`,
+      savingsCents: savings,
+      designImpact: ladder.impact,
+      status: "proposed",
+      action: { kind: "set_finish", field: ladder.field, option: cheaper.key },
+    });
+  }
 
-  const flooring = estimate.lineItems.find((li) => li.category === "Flooring");
-  if (flooring) add("Engineered flooring in secondary rooms instead of hardwood throughout", flooring.qty * flooring.unitCostCents * 0.3, "low");
+  // Deferrable rooms: exact savings via the same revision path the apply uses.
+  for (const deferrable of DEFERRABLE) {
+    const room = model.rooms.find((r) => r.kind === deferrable.kind);
+    if (!room) continue;
+    const removed = applyRevision(model, [{ kind: "remove", target: room.label }]);
+    if (removed.applied.length === 0) continue;
+    const candidate = estimateRevision(removed.model, "ve-candidate", estimate.regionCode, finishes);
+    const savings = estimate.totalCents - candidate.totalCents;
+    if (savings <= 0) continue;
+    suggestions.push({
+      id: `ve-${i++}`,
+      estimateId: estimate.id,
+      description: `Defer the ${deferrable.label} (${room.label}) to a future phase`,
+      savingsCents: savings,
+      designImpact: "high",
+      status: "proposed",
+      action: { kind: "remove_room", target: room.label },
+    });
+  }
 
-  const kitchen = estimate.lineItems.find((li) => li.category === "Kitchen");
-  if (kitchen) add("Semi-custom cabinets instead of full custom", kitchen.unitCostCents * 0.2, "low");
+  // Advisory only — massing changes need a fresh generation pass.
+  if (model.levels === 1) {
+    suggestions.push({
+      id: `ve-${i++}`,
+      estimateId: estimate.id,
+      description: "Two-story massing on a smaller foundation (regenerate with a two-story style)",
+      savingsCents: Math.round(estimate.totalCents * 0.03),
+      designImpact: "high",
+      status: "proposed",
+    });
+  }
 
-  if (model.rooms.some((r) => r.kind === "theater")) add("Defer the theater to a future phase (pre-wire only)", estimate.totalCents * 0.035, "high");
-  if (model.rooms.some((r) => r.kind === "outdoor")) add("Defer the outdoor kitchen (stub utilities now)", estimate.totalCents * 0.02, "med");
-  if (model.levels === 1) add("Two-story massing on a smaller foundation", estimate.totalCents * 0.03, "high");
-
-  return suggestions
-    .sort((a, b) => b.savingsCents - a.savingsCents)
-    .map((s) => ({ ...s }))
-    .slice(0, Math.max(3, suggestions.filter((s) => s.savingsCents < overCents).length));
+  return suggestions.sort((a, b) => b.savingsCents - a.savingsCents).slice(0, 5);
 }
