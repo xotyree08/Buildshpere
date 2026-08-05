@@ -29,6 +29,14 @@ export async function GET() {
       Boolean(process.env.S3_BUCKET),
       "Set S3_BUCKET when render-asset storage lands. Until then, no server-side assets are stored.",
     ),
+    payments_apple: check(
+      Boolean(process.env.APPLE_SHARED_SECRET),
+      "Set APPLE_SHARED_SECRET (App Store Connect → App Information → Shared Secret) to enable App Store receipt validation. Until then, Apple purchases are refused with this exact message and nothing is unlocked.",
+    ),
+    payments_google: check(
+      Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_JSON && process.env.ANDROID_PACKAGE_NAME),
+      "Set GOOGLE_SERVICE_ACCOUNT_JSON and ANDROID_PACKAGE_NAME to enable Play Billing validation. Until then, Google purchases are refused with this exact message and nothing is unlocked.",
+    ),
   };
 
   const degraded = Object.entries(integrations)

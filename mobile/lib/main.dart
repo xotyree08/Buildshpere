@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 
 import 'spheres.dart';
+import 'store/gateway.dart';
+import 'store/purchase_service.dart';
+import 'store/server_validator.dart';
+import 'upgrade_screen.dart';
 
 void main() {
   runApp(const BuildSphereApp());
@@ -52,6 +56,22 @@ class HomeScreen extends StatelessWidget {
                 trailing: Chip(label: Text('Phase ${sphere.phase}')),
               ),
             ),
+          Card(
+            child: ListTile(
+              title: const Text('BuildSphere Plus'),
+              subtitle: const Text('Support development — benefits activate as Phase 2 ships.'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                final service = PurchaseService(
+                  gateway: PluginStoreGateway(),
+                  validateOnServer: buildServerValidator(),
+                )..init();
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => UpgradeScreen(service: service)),
+                );
+              },
+            ),
+          ),
         ],
       ),
     );
