@@ -82,3 +82,114 @@ main {
   border-radius: 999px;
   padding: 0.1rem 0.55rem;
 }
+
+/* Floor-plan room fills */
+:root {
+  --plan-bedroom: #dce9f5;
+  --plan-bathroom: #d6efe3;
+  --plan-kitchen: #fbe8d0;
+  --plan-living: #f3ecdc;
+  --plan-office: #e7e2f2;
+  --plan-garage: #e4e4e0;
+  --plan-hall: #f0f0ea;
+  --plan-outdoor: #e0eed6;
+  --plan-window: #bcd6ef;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --plan-bedroom: #2a3a4a;
+    --plan-bathroom: #26382f;
+    --plan-kitchen: #423527;
+    --plan-living: #3b382e;
+    --plan-office: #35304a;
+    --plan-garage: #2e2e2c;
+    --plan-hall: #262624;
+    --plan-outdoor: #2d3a26;
+    --plan-window: #35506b;
+  }
+}
+
+/* Forms & app chrome */
+.field {
+  display: block;
+  margin-bottom: 1rem;
+}
+.field span {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+.field input,
+.field select,
+.field textarea {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+}
+.field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0 1rem;
+}
+.checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  margin: 0.5rem 0 1rem;
+}
+.checks label {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  font-size: 0.95rem;
+}
+.btn {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.6rem 1.2rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+}
+.btn.secondary {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+.status-pass { color: var(--accent); }
+.status-warn { color: #b58a1e; }
+.status-fail { color: #c04f42; }
+.scorepill {
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0.15rem 0.7rem;
+  border: 1.5px solid currentColor;
+}
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 2rem;
+}
+.topbar a { color: var(--accent); text-decoration: none; font-weight: 600; }
+table.lineitems {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+table.lineitems th, table.lineitems td {
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--line);
+}
+table.lineitems td:last-child, table.lineitems th:last-child { text-align: right; }

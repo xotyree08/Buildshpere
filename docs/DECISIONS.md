@@ -33,3 +33,11 @@ LLMs handle conversation and concept generation. Design health checks, takeoffs,
 ## ADR-008: Async jobs with 202 + polling — accepted
 
 Generation, revision, and rendering are queue-backed jobs surfaced through a uniform `/jobs/:id` API. No synchronous long requests; the UI is built around progressive results from the start.
+
+## ADR-009: Client-side persistence until a database lands — accepted
+
+The design loop ships with projects persisted in localStorage, shaped exactly
+like the Postgres schema in docs/MVP_PHASE1.md. The engines are pure and the
+API routes stateless, so introducing `DATABASE_URL` + a server store swaps the
+persistence layer without touching engine or UI logic. Accounts arrive with
+that swap; until then the app is single-device and honest about it.
