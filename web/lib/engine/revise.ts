@@ -38,7 +38,7 @@ const KIND_WORDS: [RoomKind, string[]][] = [
   ["outdoor", ["outdoor kitchen", "outdoor"]],
 ];
 
-const ADD_DEFAULTS: Partial<Record<RoomKind, { label: string; areaSqft: number; aspect: number; public: boolean }>> = {
+export const ADD_DEFAULTS: Partial<Record<RoomKind, { label: string; areaSqft: number; aspect: number; public: boolean }>> = {
   bedroom: { label: "Bedroom", areaSqft: 156, aspect: 1.2, public: false },
   bathroom: { label: "Bath", areaSqft: 60, aspect: 1.4, public: false },
   office: { label: "Office", areaSqft: 132, aspect: 1.1, public: false },
@@ -118,6 +118,21 @@ function findSpec(specs: LeveledSpec[], target: string): LeveledSpec | undefined
       const m = matchKindWord(t);
       return m != null && s.kind === m.kind;
     })
+  );
+}
+
+/** Room kinds an add op may introduce. */
+export const ADDABLE_KINDS = Object.keys(ADD_DEFAULTS) as RoomKind[];
+
+/** Whether a resize/remove target matches anything in this model. */
+export function opTargetExists(model: ParametricModel, target: string): boolean {
+  const t = target.toLowerCase();
+  return model.rooms.some(
+    (r) =>
+      r.kind !== "hallway" &&
+      (r.label.toLowerCase() === t ||
+        r.label.toLowerCase().includes(t) ||
+        (matchKindWord(t)?.kind ?? null) === r.kind),
   );
 }
 

@@ -14,7 +14,7 @@ import type {
 import { generateConcepts } from "./generate";
 import { runChecks } from "./checks";
 import { estimateRevision, valueEngineering, type EstimateFinishes } from "./estimate";
-import { applyRevision, parseRevisionRequest } from "./revise";
+import { applyRevision, parseRevisionRequest, type RevisionOp } from "./revise";
 import type { FinishSelections } from "../catalog/materials";
 
 export interface LoopOptions {
@@ -103,6 +103,21 @@ export function reviseConceptPackage(
   opts: { budgetCents: number | null; regionCode?: string; finishes?: FinishSelections },
 ): ReviseOutcome {
   const { ops, unrecognized } = parseRevisionRequest(requestText);
+  if (ops.length === 0) return { pkg: null, unrecognized };
+  return applyOpsToConceptPackage(base, ops, opts, unrecognized);
+}
+
+/**
+ * Apply already-structured ops (from the deterministic parser or from the
+ * AI interpreter after validation) — one shared path, so both routes obey
+ * identical layout rules and guardrails.
+ */
+export function applyOpsToConceptPackage(
+  base: ConceptPackage,
+  ops: RevisionOp[],
+  opts: { budgetCents: number | null; regionCode?: string; finishes?: FinishSelections },
+  unrecognized: string[] = [],
+): ReviseOutcome {
   if (ops.length === 0) return { pkg: null, unrecognized };
 
   const history = base.revisions ?? [];
