@@ -14,7 +14,15 @@ const ROOM_FILLS: Record<string, string> = {
   outdoor: "var(--plan-outdoor)",
 };
 
-export function FloorPlan({ model, level }: { model: ParametricModel; level: number }) {
+export function FloorPlan({
+  model,
+  level,
+  highlightKey,
+}: {
+  model: ParametricModel;
+  level: number;
+  highlightKey?: string;
+}) {
   const rooms = model.rooms.filter((r) => r.level === level);
   if (rooms.length === 0) return null;
 
@@ -39,8 +47,8 @@ export function FloorPlan({ model, level }: { model: ParametricModel; level: num
               width={w}
               height={d}
               fill={ROOM_FILLS[room.kind] ?? "var(--plan-hall)"}
-              stroke="var(--fg)"
-              strokeWidth={0.3}
+              stroke={room.key === highlightKey ? "var(--accent)" : "var(--fg)"}
+              strokeWidth={room.key === highlightKey ? 1 : 0.3}
             />
             {w > 8 && d > 5 && (
               <text
