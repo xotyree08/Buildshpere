@@ -438,42 +438,43 @@ table.lineitems td:last-child, table.lineitems th:last-child { text-align: right
 }
 
 /* ---------- Moving pearl background ---------- */
+/* Blobs are sized in vmax so phones get the same airy spacing as desktops
+ * (percent-sized layers stacked into a muddy green on small screens), and
+ * alphas stay whisper-quiet: the page must still read as ivory/white. */
 .folio { position: relative; isolation: isolate; }
 .folio::before {
   content: "";
   position: fixed;
-  inset: -10%;
+  inset: 0;
   z-index: -1;
   background:
-    radial-gradient(60% 80% at 18% 12%, rgba(206, 172, 122, 0.22), transparent 62%),
-    radial-gradient(52% 72% at 82% 18%, rgba(168, 196, 218, 0.20), transparent 62%),
-    radial-gradient(56% 76% at 72% 86%, rgba(216, 176, 190, 0.18), transparent 62%),
-    radial-gradient(48% 68% at 12% 78%, rgba(190, 206, 176, 0.16), transparent 62%),
+    radial-gradient(90vmax 70vmax at 12% 6%, rgba(212, 184, 142, 0.10), transparent 52%),
+    radial-gradient(85vmax 65vmax at 88% 30%, rgba(168, 194, 216, 0.09), transparent 52%),
+    radial-gradient(88vmax 68vmax at 55% 95%, rgba(214, 180, 192, 0.08), transparent 52%),
     var(--bg);
-  background-size: 170% 170%, 160% 160%, 165% 165%, 160% 160%, 100% 100%;
+  background-size: 200% 200%, 200% 200%, 200% 200%, 100% 100%;
   background-repeat: no-repeat;
-  animation: pearl-drift 28s ease-in-out infinite alternate;
+  animation: pearl-drift 30s ease-in-out infinite alternate;
 }
 @keyframes pearl-drift {
   0% {
-    background-position: 0% 0%, 100% 0%, 100% 100%, 0% 100%, 0 0;
+    background-position: 0% 0%, 100% 20%, 60% 100%, 0 0;
   }
   50% {
-    background-position: 40% 30%, 60% 45%, 55% 60%, 35% 55%, 0 0;
+    background-position: 35% 30%, 65% 50%, 40% 60%, 0 0;
   }
   100% {
-    background-position: 20% 65%, 85% 70%, 30% 25%, 70% 15%, 0 0;
+    background-position: 15% 60%, 80% 75%, 65% 20%, 0 0;
   }
 }
 @media (prefers-color-scheme: dark) {
   .folio::before {
     background:
-      radial-gradient(60% 80% at 18% 12%, rgba(201, 169, 106, 0.10), transparent 62%),
-      radial-gradient(52% 72% at 82% 18%, rgba(120, 160, 196, 0.09), transparent 62%),
-      radial-gradient(56% 76% at 72% 86%, rgba(196, 140, 160, 0.08), transparent 62%),
-      radial-gradient(48% 68% at 12% 78%, rgba(140, 170, 130, 0.07), transparent 62%),
+      radial-gradient(90vmax 70vmax at 12% 6%, rgba(201, 169, 106, 0.06), transparent 52%),
+      radial-gradient(85vmax 65vmax at 88% 30%, rgba(126, 164, 198, 0.05), transparent 52%),
+      radial-gradient(88vmax 68vmax at 55% 95%, rgba(196, 144, 164, 0.05), transparent 52%),
       var(--bg);
-    background-size: 170% 170%, 160% 160%, 165% 165%, 160% 160%, 100% 100%;
+    background-size: 200% 200%, 200% 200%, 200% 200%, 100% 100%;
     background-repeat: no-repeat;
   }
 }
