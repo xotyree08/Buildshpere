@@ -7,6 +7,7 @@
  */
 
 import type { FinishSelections } from "../catalog/materials";
+import { defaultSchemeFor, furnitureForModel, schemeByKey, type InteriorScheme } from "../engine/interiors";
 import { roofFor } from "../engine/roof";
 import { WALL_HEIGHT_FT } from "../engine/iso";
 import type { HomeStyle, ParametricModel, Room } from "../types";
@@ -28,7 +29,7 @@ export interface Box3 {
   h: number;
   d: number;
   color: string;
-  kind: "floor" | "wall" | "window" | "door" | "slab" | "trim" | "plinth" | "drive" | "path" | "stoop";
+  kind: "floor" | "wall" | "window" | "door" | "slab" | "trim" | "plinth" | "drive" | "path" | "stoop" | "furn";
 }
 
 export interface Prism {
@@ -188,11 +189,30 @@ export function buildScene3D(
   model: ParametricModel,
   style?: HomeStyle,
   finishes?: FinishSelections,
+  interiorScheme?: string,
 ): Scene3D {
   const palette = exteriorPalette(finishes);
   const boxes: Box3[] = [];
   const roofs: Prism[] = [];
   const cuts = collectCuts(model);
+
+  // Staged furniture in the scheme's tones — the walk mode walks a
+  // furnished home, not an empty shell.
+  const scheme: InteriorScheme = schemeByKey(interiorScheme) ?? defaultSchemeFor(style);
+  for (const item of furnitureForModel(model)) {
+    const room = model.rooms.find((r) => item.key.startsWith(`${r.key}-`));
+    const base = (room?.level ?? 0) * WALL_HEIGHT_FT;
+    boxes.push({
+      x: item.x,
+      y: base,
+      z: item.z,
+      w: item.w,
+      h: item.h,
+      d: item.d,
+      color: scheme[item.tone],
+      kind: "furn",
+    });
+  }
 
   for (const room of model.rooms) {
     const [x, z, w, d] = room.rect;

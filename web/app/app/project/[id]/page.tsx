@@ -128,6 +128,7 @@ function ConceptCard({
   setbacks,
   constraints,
   finishes,
+  interiorScheme,
   onRevise,
   onApplyVe,
   onRollback,
@@ -142,6 +143,7 @@ function ConceptCard({
   setbacks: SetbackRules;
   constraints?: SiteConstraint[];
   finishes?: FinishSelections;
+  interiorScheme?: string;
   expanded: boolean;
   onToggle: () => void;
   onRevise: (text: string) => Promise<string | null>;
@@ -269,7 +271,7 @@ function ConceptCard({
         </div>
       ) : view === "viewer3d" ? (
         <div style={{ margin: "0.75rem 0" }}>
-          <Viewer3D model={model} style={concept.style} finishes={finishes} />
+          <Viewer3D model={model} style={concept.style} finishes={finishes} interiorScheme={interiorScheme} />
         </div>
       ) : view === "elevations" ? (
         <div style={{ margin: "0.75rem 0", display: "flex", gap: "1.5rem", flexWrap: "wrap" }}>
@@ -806,6 +808,7 @@ export default function ProjectPage() {
           <Link href={`/app/project/${project.id}/bids`}>Bid package</Link>
           <Link href={`/app/project/${project.id}/schedule`}>Schedule</Link>
           <Link href={`/app/project/${project.id}/maintenance`}>Maintenance</Link>
+          <Link href={`/app/project/${project.id}/interiors`}>Interiors</Link>
           <Link href="/app">All projects</Link>
         </span>
       </div>
@@ -1000,6 +1003,7 @@ export default function ProjectPage() {
           setbacks={sanitizeSetbacks(entry.setbacks)}
           constraints={entry.constraints}
           finishes={entry.finishes}
+          interiorScheme={entry.interiorScheme}
           expanded={expanded === pkg.concept.id}
           onToggle={() => setExpanded(expanded === pkg.concept.id ? null : pkg.concept.id)}
           onRevise={(text) => handleRevise(pkg.concept.id, text)}

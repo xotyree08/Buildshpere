@@ -117,6 +117,23 @@ test("3D viewer renders a non-black scene and walk mode responds", async ({ page
   expect(Buffer.compare(inside, moved)).not.toBe(0);
 });
 
+test("interiors: schemes restyle the rooms and the stylist falls back honestly", async ({ page }) => {
+  await generateProject(page);
+  await page.getByRole("link", { name: "Interiors" }).click();
+  await page.waitForURL(/\/interiors/);
+  // The interview's default Modern style wears the Modern Minimal scheme.
+  await expect(page.locator("h2")).toContainText("Modern Minimal");
+  expect(await page.locator("svg[aria-label$='furnished plan']").count()).toBeGreaterThan(5);
+  // Manual scheme change restyles the header.
+  await page.getByRole("button", { name: "Japandi", exact: true }).click();
+  await expect(page.locator("h2")).toContainText("Japandi");
+  // The stylist without an API key falls back to the keyword matcher and says so.
+  await page.fill('input[placeholder^="How should it feel"]', "breezy beach house vacation feeling");
+  await page.getByRole("button", { name: "Style it" }).click();
+  await expect(page.locator("h2")).toContainText("Coastal", { timeout: 10_000 });
+  await expect(page.getByText(/keyword matcher/)).toBeVisible();
+});
+
 test("password reset pages serve both halves honestly", async ({ page }) => {
   await page.goto("/reset");
   await page.fill('input[type="email"]', "someone@example.com");
