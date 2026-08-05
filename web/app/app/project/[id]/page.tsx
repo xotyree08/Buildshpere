@@ -803,6 +803,7 @@ export default function ProjectPage() {
             {shareBusy ? "Sharing…" : "Share"}
           </button>
           <Link href={`/app/project/${project.id}/report`}>Design report</Link>
+          <Link href={`/app/project/${project.id}/bids`}>Bid package</Link>
           <Link href="/app">All projects</Link>
         </span>
       </div>
