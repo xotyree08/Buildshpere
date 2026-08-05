@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { ElevationView } from "@/components/ElevationView";
 import { FloorPlan } from "@/components/FloorPlan";
 import { MassingView } from "@/components/MassingView";
+import { SitePlanView } from "@/components/SitePlanView";
 import { EXTERIOR_CATEGORIES, FINISH_CATEGORIES, DEFAULT_FINISHES } from "@/lib/catalog/materials";
 import { styleInfo } from "@/lib/catalog/styles";
 import { CONCEPT_DISCLAIMER, ESTIMATE_RANGE_CLAIM } from "@/lib/claims";
@@ -151,6 +152,14 @@ export default function ReportPage() {
               <div style={{ flex: 1 }}>
                 <p style={{ fontSize: "0.8rem", margin: "0 0 0.25rem" }}>Side elevation (east)</p>
                 <ElevationView model={model} style={pkg.concept.style} direction="east" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: "0.8rem", margin: "0 0 0.25rem" }}>Site plan</p>
+                <SitePlanView
+                  model={model}
+                  lotWidthFt={project.lotWidthFt ?? 60}
+                  lotDepthFt={project.lotDepthFt ?? 120}
+                />
               </div>
             </div>
 

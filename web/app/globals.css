@@ -96,6 +96,8 @@ main {
   --plan-window: #bcd6ef;
   --plan-roof: #cbbfa8;
   --elev-wall: #efece3;
+  --site-lot: #e7efdc;
+  --site-street: #e2e2dd;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -111,6 +113,8 @@ main {
     --plan-window: #35506b;
     --plan-roof: #4a4234;
     --elev-wall: #2a2a27;
+    --site-lot: #232a1e;
+    --site-street: #262624;
   }
 }
 
