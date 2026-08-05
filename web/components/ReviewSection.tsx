@@ -9,6 +9,8 @@ export interface Review {
   status: "requested" | "claimed" | "approved" | "changes_requested";
   note: string | null;
   professionalEmail: string | null;
+  /** ISO timestamp of the last review transition — edits after it invalidate approval. */
+  updatedAt: string;
 }
 
 const STATUS_LABEL: Record<Review["status"], string> = {

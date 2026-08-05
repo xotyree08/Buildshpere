@@ -34,6 +34,14 @@ export interface RevisionPackage {
   rejected: string[];
 }
 
+export interface Milestone {
+  label: string;
+  /** ms epoch when frozen. */
+  at: number;
+  /** How many revisions existed at the freeze — the immutable floor. */
+  revisionCount: number;
+}
+
 export interface ConceptPackage {
   concept: DesignConcept;
   healthScore: number;
@@ -42,6 +50,8 @@ export interface ConceptPackage {
   veSuggestions: ValueEngineeringSuggestion[];
   /** Iteration history, oldest first. Absent on pre-revision stored data. */
   revisions?: RevisionPackage[];
+  /** Frozen milestones (spec BS-DES-006), oldest first. */
+  milestones?: Milestone[];
 }
 
 export function runDesignLoop(brief: DesignBrief, opts: LoopOptions): ConceptPackage[] {
@@ -88,6 +98,35 @@ export function repriceConceptPackage(
 export type RollbackResult = { ok: true; pkg: ConceptPackage } | { ok: false; error: string };
 
 /**
+ * Freeze the concept's current state as an immutable milestone
+ * (BS-DES-006): later revisions still append normally, but rollback can
+ * never descend below the newest milestone — an approved state cannot be
+ * silently unmade.
+ */
+export function freezeMilestone(
+  pkg: ConceptPackage,
+  label: string,
+  at: number,
+): RollbackResult {
+  const trimmed = label.trim();
+  if (!trimmed) return { ok: false, error: "Give the milestone a name (e.g. \"Presented to family\")." };
+  const revisionCount = (pkg.revisions ?? []).length;
+  const milestones = pkg.milestones ?? [];
+  if (milestones.some((m) => m.revisionCount === revisionCount)) {
+    return { ok: false, error: "This exact state is already frozen as a milestone." };
+  }
+  return {
+    ok: true,
+    pkg: { ...pkg, milestones: [...milestones, { label: trimmed, at, revisionCount }] },
+  };
+}
+
+/** The rollback floor: revisions at or above the newest milestone are protected. */
+export function frozenFloor(pkg: ConceptPackage): number {
+  return (pkg.milestones ?? []).reduce((max, m) => Math.max(max, m.revisionCount), 0);
+}
+
+/**
  * Return a concept to an earlier state by discarding later revisions.
  * `keep` is how many revisions survive (0 = back to the original concept).
  * Pure truncation: every retained state was already checked and priced when
@@ -100,6 +139,14 @@ export function rollbackConcept(pkg: ConceptPackage, keep: number): RollbackResu
     return {
       ok: false,
       error: `Nothing to roll back — this concept has ${history.length} revision(s).`,
+    };
+  }
+  const floor = frozenFloor(pkg);
+  if (keep < floor) {
+    const milestone = (pkg.milestones ?? []).find((m) => m.revisionCount === floor);
+    return {
+      ok: false,
+      error: `Can't roll back past the frozen milestone "${milestone?.label ?? "milestone"}" — frozen states are immutable.`,
     };
   }
   return { ok: true, pkg: { ...pkg, revisions: history.slice(0, keep) } };
