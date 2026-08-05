@@ -25,6 +25,34 @@ export const GENERIC_SETBACKS: SetbackRules = {
   maxCoveragePct: 40,
 };
 
+/**
+ * Clamp user-entered jurisdiction rules to physically sane ranges, falling
+ * back to the generic default per field. Never throws — bad input (NaN,
+ * strings, absent fields) degrades to defaults, out-of-range values clamp.
+ */
+export function sanitizeSetbacks(input?: Partial<SetbackRules> | null): SetbackRules {
+  const clamp = (v: unknown, fallback: number, min: number, max: number) => {
+    const n = typeof v === "number" && Number.isFinite(v) ? v : fallback;
+    return Math.min(max, Math.max(min, Math.round(n * 10) / 10));
+  };
+  return {
+    frontFt: clamp(input?.frontFt, GENERIC_SETBACKS.frontFt, 0, 100),
+    rearFt: clamp(input?.rearFt, GENERIC_SETBACKS.rearFt, 0, 100),
+    sideFt: clamp(input?.sideFt, GENERIC_SETBACKS.sideFt, 0, 50),
+    maxCoveragePct: clamp(input?.maxCoveragePct, GENERIC_SETBACKS.maxCoveragePct, 5, 100),
+  };
+}
+
+/** Whether these rules are the untouched generic defaults (drives disclaimer wording). */
+export function isGenericSetbacks(rules: SetbackRules): boolean {
+  return (
+    rules.frontFt === GENERIC_SETBACKS.frontFt &&
+    rules.rearFt === GENERIC_SETBACKS.rearFt &&
+    rules.sideFt === GENERIC_SETBACKS.sideFt &&
+    rules.maxCoveragePct === GENERIC_SETBACKS.maxCoveragePct
+  );
+}
+
 export interface PlacedRoom {
   room: Room;
   /** Lot coordinates: x from the left lot line, y from the street. */

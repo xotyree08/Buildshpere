@@ -4,7 +4,7 @@ import type { DesignBrief } from "../types";
 import { generateConcepts } from "./generate";
 import { runChecks } from "./checks";
 import { buildPermitReadiness, type ReadinessInput } from "./permit";
-import { buildSitePlan } from "./site";
+import { buildSitePlan, sanitizeSetbacks } from "./site";
 
 const brief: DesignBrief = {
   id: "b",
@@ -103,5 +103,19 @@ describe("buildPermitReadiness", () => {
   it("is deterministic", () => {
     const input = baseInput({ reviewStatus: "requested" });
     expect(buildPermitReadiness(input)).toEqual(buildPermitReadiness(input));
+  });
+});
+
+describe("custom setback rules in readiness wording", () => {
+  it("a fitting site under entered rules says to verify them, not that rules are generic", () => {
+    const model = generateConcepts(brief, 60)[0].model;
+    const custom = sanitizeSetbacks({ frontFt: 30, rearFt: 25, sideFt: 10, maxCoveragePct: 45 });
+    const readiness = buildPermitReadiness(
+      baseInput({ site: buildSitePlan(model, 150, 250, custom) }),
+    );
+    const sitePlan = readiness.items.find((i) => i.key === "site_plan");
+    expect(sitePlan?.status).toBe("ready");
+    expect(sitePlan?.detail).toContain("verify them against your jurisdiction");
+    expect(sitePlan?.detail).not.toContain("generic");
   });
 });

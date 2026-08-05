@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DesignBrief, HomeStyle } from "../types";
 import { generateConcepts } from "./generate";
-import { buildSitePlan, GENERIC_SETBACKS } from "./site";
+import { buildSitePlan, GENERIC_SETBACKS, isGenericSetbacks, sanitizeSetbacks } from "./site";
 
 function brief(style: HomeStyle = "ranch"): DesignBrief {
   return {
@@ -96,3 +96,47 @@ function site0(model: Parameters<typeof buildSitePlan>[0]): number {
     Math.max(...rooms.map((r) => r.rect[1] + r.rect[3])) - Math.min(...rooms.map((r) => r.rect[1]))
   );
 }
+
+describe("sanitizeSetbacks", () => {
+  it("passes sane values through and rounds to a tenth", () => {
+    const rules = sanitizeSetbacks({ frontFt: 30, rearFt: 15.25, sideFt: 5, maxCoveragePct: 35 });
+    expect(rules).toEqual({ frontFt: 30, rearFt: 15.3, sideFt: 5, maxCoveragePct: 35 });
+  });
+
+  it("clamps out-of-range values and falls back per field on garbage", () => {
+    const clamped = sanitizeSetbacks({ frontFt: 900, rearFt: -5, sideFt: 200, maxCoveragePct: 0 });
+    expect(clamped).toEqual({ frontFt: 100, rearFt: 0, sideFt: 50, maxCoveragePct: 5 });
+
+    const garbage = sanitizeSetbacks({
+      frontFt: Number.NaN,
+      rearFt: "ten" as unknown as number,
+      sideFt: undefined,
+    });
+    expect(garbage).toEqual(GENERIC_SETBACKS);
+    expect(sanitizeSetbacks(undefined)).toEqual(GENERIC_SETBACKS);
+    expect(sanitizeSetbacks(null)).toEqual(GENERIC_SETBACKS);
+  });
+
+  it("isGenericSetbacks distinguishes defaults from entered rules", () => {
+    expect(isGenericSetbacks(GENERIC_SETBACKS)).toBe(true);
+    expect(isGenericSetbacks(sanitizeSetbacks(undefined))).toBe(true);
+    expect(isGenericSetbacks({ ...GENERIC_SETBACKS, frontFt: 30 })).toBe(false);
+  });
+
+  it("stricter entered rules flip a fitting plan into violation", () => {
+    const model = generateConcepts(brief(), 80)[0].model;
+    const generous = buildSitePlan(model, 120, 220);
+    expect(generous.fits).toBe(true);
+
+    const strict = sanitizeSetbacks({
+      frontFt: GENERIC_SETBACKS.frontFt,
+      rearFt: GENERIC_SETBACKS.rearFt,
+      sideFt: 40,
+      maxCoveragePct: 5,
+    });
+    const site = buildSitePlan(model, 120, 220, strict);
+    expect(site.fits).toBe(false);
+    expect(site.violations.some((v) => v.includes("40 ft setback"))).toBe(true);
+    expect(site.violations.some((v) => v.includes("5% limit"))).toBe(true);
+  });
+});

@@ -1,4 +1,4 @@
-import { buildSitePlan, GENERIC_SETBACKS, type SetbackRules } from "@/lib/engine/site";
+import { buildSitePlan, GENERIC_SETBACKS, isGenericSetbacks, type SetbackRules } from "@/lib/engine/site";
 import type { ParametricModel } from "@/lib/types";
 
 const ROOM_FILLS: Record<string, string> = {
@@ -94,8 +94,9 @@ export function SitePlanView({
           : site.violations.join(" ")}
       </p>
       <p style={{ margin: "0.15rem 0 0", fontSize: "0.75rem", color: "var(--muted)" }}>
-        Generic residential setbacks ({rules.frontFt}/{rules.rearFt}/{rules.sideFt} ft, {rules.maxCoveragePct}% coverage) —
-        county rules arrive with LandSphere.
+        {isGenericSetbacks(rules)
+          ? `Generic residential setbacks (${rules.frontFt}/${rules.rearFt}/${rules.sideFt} ft, ${rules.maxCoveragePct}% coverage) — county rules arrive with LandSphere.`
+          : `Your setback rules (${rules.frontFt}/${rules.rearFt}/${rules.sideFt} ft, ${rules.maxCoveragePct}% coverage) — verify against your jurisdiction's published code.`}
       </p>
     </div>
   );

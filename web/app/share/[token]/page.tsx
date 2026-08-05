@@ -10,6 +10,7 @@ import { MassingView } from "@/components/MassingView";
 import { SitePlanView } from "@/components/SitePlanView";
 import { styleInfo } from "@/lib/catalog/styles";
 import { CONCEPT_DISCLAIMER, ESTIMATE_RANGE_CLAIM } from "@/lib/claims";
+import { sanitizeSetbacks } from "@/lib/engine/site";
 import { formatUsd, type StoredProject } from "@/lib/store";
 
 /**
@@ -121,6 +122,7 @@ export default function SharedProjectPage() {
                   model={model}
                   lotWidthFt={project.lotWidthFt ?? 60}
                   lotDepthFt={project.lotDepthFt ?? 120}
+                  rules={sanitizeSetbacks(entry.setbacks)}
                 />
               </div>
             </div>
