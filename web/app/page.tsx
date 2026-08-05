@@ -53,9 +53,9 @@ export default function Home() {
           <h1 className="display">A home of your own, drawn to the last detail.</h1>
           <p className="lead">
             Tell BuildSphere how your family lives. In moments you hold three architect-quality
-            concepts — floor plans, elevations, a seat on your own lot — each priced line by line,
-            each refined by conversation, and carried from first sketch through permits,
-            construction, and decades of ownership.
+            concepts — floor plans, elevations, a furnished 3D interior you can walk through —
+            each priced line by line, each refined by conversation, and carried from first sketch
+            through bids, construction draws, and decades of ownership.
           </p>
           <p style={{ display: "flex", gap: "1.25rem", alignItems: "center", flexWrap: "wrap" }}>
             <Link className="btn" href="/app">
@@ -114,13 +114,37 @@ export default function Home() {
             <span>distinct concepts, generated and priced in moments</span>
           </div>
           <div>
-            <strong>10</strong>
-            <span>design health checks screening every plan</span>
+            <strong>12</strong>
+            <span>interior design schemes, staged room by room</span>
           </div>
           <div>
             <strong>±15%</strong>
             <span>honest concept-stage estimates, line by line</span>
           </div>
+        </section>
+
+        <hr className="hairline" />
+
+        <section>
+          <p className="eyebrow">What you walk away with</p>
+          <ul className="sphere-list">
+            {[
+              ["Contractor bid package", "Eleven trade-scoped sheets with measured quantities — unpriced, so every bid you collect is unanchored."],
+              ["Construction schedule & draws", "A milestone timeline sized to your design, with a payment plan tied to inspected work."],
+              ["Electrical & lighting plan", "Receptacles, switches, fixtures, and smoke/CO drawn to code minimums in standard symbols."],
+              ["Energy report", "Where the heat goes, what it costs each year, and which upgrades genuinely pay back."],
+              ["30-year maintenance plan", "A care calendar generated from your exact materials — slate and shingle age differently, and your plan knows it."],
+              ["The Design Report, as a real PDF", "Vector floor plans, elevations, health checks, and the full estimate — small enough to email, crisp at any zoom."],
+            ].map(([title, blurb], i) => (
+              <li key={title}>
+                <span className="no">{String(i + 1).padStart(2, "0")}</span>
+                <div>
+                  <h3>{title}</h3>
+                  <p>{blurb}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
         </section>
 
         <hr className="hairline" />
@@ -140,8 +164,9 @@ export default function Home() {
               <span className="eyebrow" style={{ letterSpacing: "0.2em" }}>II</span>
               <h3>Three concepts, honestly priced</h3>
               <p>
-                Plans, elevations, interactive 3D, and a line-by-line estimate with its sources
-                shown. Ask for a bigger kitchen and watch the price answer.
+                Plans, elevations, and a line-by-line estimate with its sources shown. Walk the
+                furnished interior in 3D, restyle it in twelve schemes, and watch the price answer
+                every change.
               </p>
             </div>
             <div>
