@@ -379,6 +379,8 @@ export default function ProjectPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [storageNotice, setStorageNotice] = useState<string | null>(null);
   const [review, setReview] = useState<Review | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareBusy, setShareBusy] = useState(false);
   const signedIn = typeof window !== "undefined" && Boolean(accountEmail());
 
   useEffect(() => {
@@ -510,6 +512,57 @@ export default function ProjectPage() {
     return null;
   }
 
+  async function handleShare() {
+    if (!signedIn) {
+      setStorageNotice("Sign in (Account) to create a share link — the link serves your synced copy.");
+      return;
+    }
+    setShareBusy(true);
+    try {
+      // The link serves the server copy, so make sure it's current first.
+      const current = loadProject(params.id);
+      if (current) {
+        const pushed = await pushProject(current);
+        if (!pushed.ok) {
+          setStorageNotice(pushed.error);
+          return;
+        }
+      }
+      const res = await fetch("/api/v1/share", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId: params.id }),
+      }).catch(() => null);
+      const body = (await res?.json().catch(() => null)) as { token?: string; error?: string } | null;
+      if (!res?.ok || !body?.token) {
+        setStorageNotice(body?.error ?? "Creating the share link failed — try again.");
+        return;
+      }
+      setShareUrl(`${window.location.origin}/share/${body.token}`);
+      setStorageNotice(null);
+    } finally {
+      setShareBusy(false);
+    }
+  }
+
+  async function handleRevokeShare() {
+    setShareBusy(true);
+    try {
+      const res = await fetch(`/api/v1/share?projectId=${encodeURIComponent(params.id)}`, {
+        method: "DELETE",
+      }).catch(() => null);
+      if (!res?.ok) {
+        const body = (await res?.json().catch(() => null)) as { error?: string } | null;
+        setStorageNotice(body?.error ?? "Revoking the link failed — try again.");
+        return;
+      }
+      setShareUrl(null);
+      setStorageNotice("Share link revoked — the old URL no longer works.");
+    } finally {
+      setShareBusy(false);
+    }
+  }
+
   return (
     <main>
       <div className="topbar">
@@ -533,6 +586,15 @@ export default function ProjectPage() {
           >
             Export
           </button>
+          <button
+            className="btn secondary"
+            style={{ padding: "0.3rem 0.8rem" }}
+            type="button"
+            disabled={shareBusy}
+            onClick={() => void handleShare()}
+          >
+            {shareBusy ? "Sharing…" : "Share"}
+          </button>
           <Link href={`/app/project/${project.id}/report`}>Design report</Link>
           <Link href="/app">All projects</Link>
         </span>
@@ -544,6 +606,38 @@ export default function ProjectPage() {
         {CONCEPT_DISCLAIMER}
       </p>
       {storageNotice && <p className="status-warn">{storageNotice}</p>}
+      {shareUrl && (
+        <div className="card" style={{ marginBottom: "1.5rem" }}>
+          <h2 style={{ marginTop: 0 }}>Share link</h2>
+          <p style={{ color: "var(--muted)", fontSize: "0.9rem" }}>
+            Anyone with this link can view the design and estimate — read-only, no account needed.
+            Creating a new link replaces this one.
+          </p>
+          <p style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+            <input
+              readOnly
+              value={shareUrl}
+              style={{ flex: 1, minWidth: "16rem" }}
+              onFocus={(e) => e.target.select()}
+            />
+            <button
+              className="btn secondary"
+              type="button"
+              onClick={() => void navigator.clipboard?.writeText(shareUrl)}
+            >
+              Copy
+            </button>
+            <button
+              className="btn secondary"
+              type="button"
+              disabled={shareBusy}
+              onClick={() => void handleRevokeShare()}
+            >
+              Revoke
+            </button>
+          </p>
+        </div>
+      )}
 
       {entry.inspiration && (
         <div className="card" style={{ marginBottom: "1.5rem", display: "flex", gap: "1rem" }}>
