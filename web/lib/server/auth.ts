@@ -119,3 +119,67 @@ export async function deleteSession(db: Db, rawToken: string): Promise<void> {
 }
 
 export const SESSION_COOKIE = "bs_session";
+
+// ---------- Password reset ----------
+// Same token discipline as sessions and share links: 256-bit random,
+// only the hash at rest, single-use, short-lived.
+
+export const RESET_TOKEN_MINUTES = 60;
+
+/** Returns null for unknown emails — the route answers identically either
+ * way so the endpoint can't be used to enumerate accounts. */
+export async function createPasswordReset(
+  db: Db,
+  email: string,
+  now: number = Date.now(),
+): Promise<{ token: string; userId: string } | null> {
+  const normalized = email.trim().toLowerCase();
+  const res = await db.query("select id from users where email = $1", [normalized]);
+  const row = res.rows[0];
+  if (!row) return null;
+  const raw = randomBytes(32).toString("hex");
+  await db.query(
+    "insert into password_resets (token_hash, user_id, created_at, expires_at) values ($1, $2, $3, $4)",
+    [
+      tokenHash(raw),
+      String(row.id),
+      new Date(now).toISOString(),
+      new Date(now + RESET_TOKEN_MINUTES * 60 * 1000).toISOString(),
+    ],
+  );
+  return { token: raw, userId: String(row.id) };
+}
+
+export type ResetResult = { ok: true; userId: string } | { ok: false; error: string };
+
+/** Single-use: consumes the token, sets the password, and revokes every
+ * existing session — a reset always signs everyone else out. */
+export async function resetPassword(
+  db: Db,
+  rawToken: string,
+  newPassword: string,
+  now: number = Date.now(),
+): Promise<ResetResult> {
+  if (newPassword.length < MIN_PASSWORD_LENGTH) {
+    return { ok: false, error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.` };
+  }
+  const res = await db.query(
+    "select token_hash, user_id, expires_at, used_at from password_resets where token_hash = $1",
+    [tokenHash(rawToken)],
+  );
+  const row = res.rows[0];
+  if (!row || row.used_at != null) {
+    return { ok: false, error: "This reset link is invalid or was already used — request a new one." };
+  }
+  if (new Date(String(row.expires_at)).getTime() < now) {
+    return { ok: false, error: "This reset link has expired — request a new one." };
+  }
+  const userId = String(row.user_id);
+  await db.query("update password_resets set used_at = $1 where token_hash = $2", [
+    new Date(now).toISOString(),
+    tokenHash(rawToken),
+  ]);
+  await db.query("update users set password_hash = $1 where id = $2", [hashPassword(newPassword), userId]);
+  await db.query("delete from auth_sessions where user_id = $1", [userId]);
+  return { ok: true, userId };
+}
