@@ -12,12 +12,14 @@
 import type {
   DesignBrief,
   DesignConcept,
+  HomeStyle,
   Opening,
   ParametricModel,
   ProgramRequirements,
   Room,
   RoomKind,
 } from "../types";
+import { massingBias, PORCH_STYLES } from "./roof";
 
 export interface RoomSpec {
   kind: RoomKind;
@@ -30,7 +32,7 @@ export interface RoomSpec {
 
 const HALL_WIDTH_FT = 4;
 
-function programRooms(p: ProgramRequirements): RoomSpec[] {
+function programRooms(p: ProgramRequirements, style?: HomeStyle): RoomSpec[] {
   const specs: RoomSpec[] = [
     { kind: "living", label: "Living Room", areaSqft: 320, aspect: 1.3, public: true },
     { kind: "kitchen", label: "Kitchen", areaSqft: 200, aspect: 1.4, public: true },
@@ -71,6 +73,9 @@ function programRooms(p: ProgramRequirements): RoomSpec[] {
       aspect: p.garageBays >= 2 ? 1.6 : 0.8,
       public: false,
     });
+  // Porch styles carry their identity in the plan, not just the price.
+  if (style && PORCH_STYLES.has(style))
+    specs.push({ kind: "outdoor", label: "Front Porch", areaSqft: 120, aspect: 2.5, public: true });
   return specs;
 }
 
@@ -194,10 +199,20 @@ export const VARIANTS: ConceptVariant[] = [
   { label: "The Wide Ranch", rowWidthFactor: 0.95, twoStory: false },
 ];
 
+/** Variant order led by the style's natural massing (roof.ts massingBias). */
+function orderedVariants(style: HomeStyle): ConceptVariant[] {
+  const bias = massingBias(style);
+  if (bias === null) return VARIANTS;
+  return [...VARIANTS].sort((a, b) => {
+    const pref = (v: ConceptVariant) => (bias === "two" ? (v.twoStory ? 0 : 1) : v.twoStory ? 1 : 0);
+    return pref(a) - pref(b);
+  });
+}
+
 export function generateConcepts(brief: DesignBrief, lotWidthFt: number | null): DesignConcept[] {
   const lot = lotWidthFt && lotWidthFt > 24 ? lotWidthFt : 60;
-  return VARIANTS.map((variant, vi) => {
-    const specs = programRooms(brief.program);
+  return orderedVariants(brief.style).map((variant, vi) => {
+    const specs = programRooms(brief.program, brief.style);
     const maxRow = Math.max(24, lot * variant.rowWidthFactor);
 
     let levelSpecs: RoomSpec[][];

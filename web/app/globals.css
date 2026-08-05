@@ -94,6 +94,7 @@ main {
   --plan-hall: #f0f0ea;
   --plan-outdoor: #e0eed6;
   --plan-window: #bcd6ef;
+  --plan-roof: #cbbfa8;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -107,6 +108,7 @@ main {
     --plan-hall: #262624;
     --plan-outdoor: #2d3a26;
     --plan-window: #35506b;
+    --plan-roof: #4a4234;
   }
 }
 

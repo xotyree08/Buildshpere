@@ -1,5 +1,5 @@
-import { buildIsoScene } from "@/lib/engine/iso";
-import type { ParametricModel } from "@/lib/types";
+import { buildIsoScene, type FaceKind } from "@/lib/engine/iso";
+import type { HomeStyle, ParametricModel } from "@/lib/types";
 
 const TOP_FILLS: Record<string, string> = {
   bedroom: "var(--plan-bedroom)",
@@ -19,15 +19,17 @@ const TOP_FILLS: Record<string, string> = {
 };
 
 /** Side faces darken the room's top fill for depth; south lighter than east. */
-function faceFill(roomKind: string, face: "top" | "south" | "east"): string {
+function faceFill(roomKind: string, face: FaceKind): string {
+  if (face === "roof") return "var(--plan-roof)";
+  if (face === "roof_shade") return "color-mix(in srgb, var(--plan-roof), var(--fg) 30%)";
   const base = TOP_FILLS[roomKind] ?? "var(--plan-hall)";
   if (face === "top") return base;
   const shade = face === "south" ? "22%" : "38%";
   return `color-mix(in srgb, ${base}, var(--fg) ${shade})`;
 }
 
-export function MassingView({ model }: { model: ParametricModel }) {
-  const scene = buildIsoScene(model);
+export function MassingView({ model, style }: { model: ParametricModel; style?: HomeStyle }) {
+  const scene = buildIsoScene(model, style);
   const pad = 3;
 
   return (

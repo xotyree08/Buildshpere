@@ -112,7 +112,7 @@ function ConceptCard({
         ))
       ) : (
         <div style={{ margin: "0.75rem 0" }}>
-          <MassingView model={model} />
+          <MassingView model={model} style={concept.style} />
           <p style={{ margin: "0.25rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>
             Massing preview — photorealistic rendering arrives with the ModelSphere pipeline.
           </p>
