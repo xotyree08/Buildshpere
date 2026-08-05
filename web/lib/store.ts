@@ -7,6 +7,7 @@
 import type { DesignBrief, Project } from "./types";
 import type { ConceptPackage } from "./engine/loop";
 import type { FinishSelections } from "./catalog/materials";
+import type { InspirationAnalysis } from "./engine/inspiration";
 
 export interface StoredProject {
   project: Project;
@@ -15,6 +16,11 @@ export interface StoredProject {
   regionCode: string;
   /** Interior finish selections; absent on pre-catalog stored data. */
   finishes?: FinishSelections;
+  /** Inspiration photo + detected attributes; absent when none uploaded. */
+  inspiration?: {
+    photoDataUrl: string;
+    analysis: InspirationAnalysis | null;
+  };
 }
 
 const KEY = "buildsphere.projects.v1";
