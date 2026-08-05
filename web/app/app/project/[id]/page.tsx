@@ -208,7 +208,7 @@ function ConceptCard({
         {model.levels === 2 ? "two-story" : "single-story"}
       </p>
 
-      <p style={{ display: "flex", gap: "0.5rem", margin: "0.5rem 0" }}>
+      <p className="viewtabs">
         <button
           className={view === "plan" ? "btn" : "btn secondary"}
           onClick={() => setView("plan")}
