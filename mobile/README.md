@@ -2,12 +2,13 @@
 
 Flutter homeowner app ([ADR-005](../docs/DECISIONS.md): ships after the web MVP proves the design loop).
 
-> ⚠️ **No store upload — TestFlight included — until the production domain is
-> final.** The bundle id derives from the domain and can never change after
-> the first upload ([LESSONS_LEARNED.md](../docs/LESSONS_LEARNED.md) L6).
-> Before the first submission, run the store checklist in L5: agreements
-> Active, products on both stores, purchase surface rendering on a physical
-> device — in that order.
+> ✅ **The domain is final: onbuildsphere.com** (ADR-013), so the L6 gate is
+> satisfied and the application id is locked forever as
+> **`com.onbuildsphere.app`** — generate platform folders with exactly that
+> org, and never change it after the first store upload. Before the first
+> submission, run the store checklist in L5: agreements Active, products on
+> both stores, purchase surface rendering on a physical device — in that
+> order.
 
 This is the app shell only — `lib/main.dart` plus the shared sphere catalog,
 **verified with the real toolchain**: `flutter analyze` clean and the widget
@@ -15,9 +16,9 @@ tests in `test/` green on Flutter stable (3.32). Platform folders
 (`android/`, `ios/`) are not committed yet; generate them locally:
 
 ```bash
-flutter create . --platforms=ios,android --project-name buildsphere_mobile
+flutter create . --platforms=ios,android --project-name buildsphere_mobile --org com.onbuildsphere
 flutter test && flutter analyze
-flutter run
+flutter run --dart-define=BUILDSPHERE_API=https://onbuildsphere.com
 ```
 
 ### In-app purchases (StoreKit / Play Billing)
@@ -29,7 +30,7 @@ posts its receipt to the BuildSphere server, which validates with
 Apple/Google and records ownership. Builds point at a deployment with
 `--dart-define=BUILDSPHERE_API=https://…`; without it (and without
 `APPLE_SHARED_SECRET` / `GOOGLE_SERVICE_ACCOUNT_JSON` +
-`ANDROID_PACKAGE_NAME` on the server) purchases are refused with the
+`ANDROID_PACKAGE_NAME=com.onbuildsphere.app` on the server) purchases are refused with the
 exact fix and nothing unlocks. Product ids live in
 `lib/store/products.dart` and must match App Store Connect and Play
 Console exactly. The L5 checklist still gates going live: agreements
