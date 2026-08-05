@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { isResponse, requireDb, requireUser } from "@/lib/server/http";
 import { recordAudit } from "@/lib/server/audit";
+import { notify } from "@/lib/server/notifications";
 import { getProfile } from "@/lib/server/pros";
 import { actOnReview, type ReviewAction } from "@/lib/server/reviews";
 
@@ -34,5 +35,13 @@ export async function POST(req: Request) {
   const result = await actOnReview(db, user, body.reviewId, body.action as ReviewAction, body.note);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 403 });
   await recordAudit(db, user.id, `review.${body.action}`, result.review.projectId);
+  // The homeowner hears about every outcome on their review (§14).
+  const messages: Record<string, string> = {
+    claim: `${user.email} is now reviewing "${result.review.projectName}".`,
+    approve: `"${result.review.projectName}" was approved by your reviewing professional.`,
+    request_changes: `Changes requested on "${result.review.projectName}": ${result.review.note ?? ""}`,
+  };
+  const action = body.action as string;
+  await notify(db, result.review.ownerId, `review.${action}`, messages[action] ?? "Review updated.", result.review.projectId);
   return NextResponse.json({ review: result.review });
 }

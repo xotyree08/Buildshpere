@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { isResponse, requireDb, requireUser } from "@/lib/server/http";
 import { recordAudit } from "@/lib/server/audit";
+import { notify } from "@/lib/server/notifications";
 import { listOpenReviews, listReviewsForOwner, requestReview } from "@/lib/server/reviews";
 
 /** Owner: their reviews. Professional: the open queue plus their claims. */
@@ -35,5 +36,9 @@ export async function POST(req: Request) {
   const result = await requestReview(db, user, body.projectId, body.projectName.slice(0, 200));
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 409 });
   await recordAudit(db, user.id, "review.requested", body.projectId);
+  // Tell the professional who already holds this review that it's back.
+  if (result.review.professionalId && result.review.professionalId !== user.id) {
+    await notify(db, result.review.professionalId, "review.rerequested", `"${result.review.projectName}" was revised and re-requested for review.`, result.review.projectId);
+  }
   return NextResponse.json({ review: result.review });
 }

@@ -94,6 +94,17 @@ create table if not exists review_invites (
 );
 create index if not exists review_invites_review on review_invites(review_id);
 
+create table if not exists notifications (
+  id text primary key,
+  user_id text not null,
+  kind text not null,
+  message text not null,
+  project_id text,
+  created_at timestamp not null,
+  read_at timestamp
+);
+create index if not exists notifications_user on notifications(user_id, created_at);
+
 create table if not exists audit_events (
   id text primary key,
   actor_id text not null,
@@ -177,6 +188,17 @@ export async function ensureSchema(db: Db): Promise<void> {
   );
   if (pros.rows.length === 0) {
     const start = SCHEMA_SQL.indexOf("create table if not exists professional_profiles");
+    const end = SCHEMA_SQL.indexOf("create table if not exists notifications");
+    for (const statement of SCHEMA_SQL.slice(start, end).split(";")) {
+      const sql = statement.trim();
+      if (sql) await db.query(sql);
+    }
+  }
+  const notif = await db.query(
+    "select 1 from information_schema.tables where table_name = 'notifications'",
+  );
+  if (notif.rows.length === 0) {
+    const start = SCHEMA_SQL.indexOf("create table if not exists notifications");
     const end = SCHEMA_SQL.indexOf("create table if not exists audit_events");
     for (const statement of SCHEMA_SQL.slice(start, end).split(";")) {
       const sql = statement.trim();
