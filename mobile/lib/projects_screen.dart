@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'api/client.dart';
+import 'project_detail_screen.dart';
 
 /// The homeowner dashboard: sign in with the same account as the web app
 /// and see every synced project — concepts, best health, starting price.
@@ -79,6 +80,11 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                           ? '${p.conceptCount} concepts · best health ${p.bestHealth} · from ${p.fromPrice}'
                           : 'Interview not finished'),
                       trailing: Chip(label: Text(p.status)),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => ProjectDetailScreen(project: p),
+                        ),
+                      ),
                     ),
                   ),
               ],

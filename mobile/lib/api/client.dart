@@ -49,6 +49,41 @@ class HttpTransport implements Transport {
   }
 }
 
+String formatUsd(int cents) {
+  final dollars = (cents / 100).round();
+  final s = dollars.toString();
+  final buf = StringBuffer('\$');
+  for (var i = 0; i < s.length; i++) {
+    if (i > 0 && (s.length - i) % 3 == 0) buf.write(',');
+    buf.write(s[i]);
+  }
+  return buf.toString();
+}
+
+/// One concept inside a synced project — enough for the detail screen.
+class ConceptSummary {
+  const ConceptSummary({
+    required this.label,
+    required this.healthScore,
+    required this.totalCents,
+    required this.lowCents,
+    required this.highCents,
+    required this.beds,
+    required this.baths,
+  });
+
+  final String label;
+  final int healthScore;
+  final int totalCents;
+  final int lowCents;
+  final int highCents;
+  final int beds;
+  final int baths;
+
+  String get price => formatUsd(totalCents);
+  String get range => '${formatUsd(lowCents)} – ${formatUsd(highCents)}';
+}
+
 class ProjectSummary {
   const ProjectSummary({
     required this.id,
@@ -57,6 +92,7 @@ class ProjectSummary {
     required this.bestHealth,
     required this.fromTotalCents,
     required this.status,
+    this.concepts = const [],
   });
 
   final String id;
@@ -65,17 +101,9 @@ class ProjectSummary {
   final int bestHealth;
   final int fromTotalCents;
   final String status;
+  final List<ConceptSummary> concepts;
 
-  String get fromPrice {
-    final dollars = (fromTotalCents / 100).round();
-    final s = dollars.toString();
-    final buf = StringBuffer('\$');
-    for (var i = 0; i < s.length; i++) {
-      if (i > 0 && (s.length - i) % 3 == 0) buf.write(',');
-      buf.write(s[i]);
-    }
-    return buf.toString();
-  }
+  String get fromPrice => formatUsd(fromTotalCents);
 }
 
 sealed class ApiOutcome<T> {
@@ -150,12 +178,24 @@ class ApiClient {
         final packages = (entry['packages'] as List?) ?? const [];
         var best = 0;
         var from = 0;
-        for (final p in packages) {
-          final pkg = p as Map;
+        final concepts = <ConceptSummary>[];
+        for (var i = 0; i < packages.length; i++) {
+          final pkg = packages[i] as Map;
           final health = (pkg['healthScore'] as num?)?.toInt() ?? 0;
           if (health > best) best = health;
-          final total = ((pkg['estimate'] as Map?)?['totalCents'] as num?)?.toInt() ?? 0;
+          final estimate = pkg['estimate'] as Map?;
+          final total = (estimate?['totalCents'] as num?)?.toInt() ?? 0;
           if (from == 0 || (total > 0 && total < from)) from = total;
+          final concept = pkg['concept'] as Map?;
+          concepts.add(ConceptSummary(
+            label: (concept?['label'] as String?) ?? 'Concept ${i + 1}',
+            healthScore: health,
+            totalCents: total,
+            lowCents: (estimate?['lowCents'] as num?)?.toInt() ?? total,
+            highCents: (estimate?['highCents'] as num?)?.toInt() ?? total,
+            beds: (concept?['beds'] as num?)?.toInt() ?? 0,
+            baths: (concept?['baths'] as num?)?.toInt() ?? 0,
+          ));
         }
         return ProjectSummary(
           id: project['id'] as String,
@@ -164,6 +204,7 @@ class ApiClient {
           bestHealth: best,
           fromTotalCents: from,
           status: (project['status'] as String?) ?? 'designing',
+          concepts: concepts,
         );
       }).toList());
     } catch (e) {
