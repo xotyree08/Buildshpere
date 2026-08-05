@@ -62,6 +62,17 @@ create table if not exists share_links (
   created_at timestamp not null
 );
 create unique index if not exists share_links_project on share_links(project_id);
+
+create table if not exists entitlements (
+  id text primary key,
+  user_id text not null,
+  product_id text not null,
+  platform text not null,
+  status text not null,
+  created_at timestamp not null,
+  updated_at timestamp not null
+);
+create unique index if not exists entitlements_user_product on entitlements(user_id, product_id);
 `;
 
 /** Minimal query surface both pg.Pool and the test engine satisfy. */
@@ -104,6 +115,17 @@ export async function ensureSchema(db: Db): Promise<void> {
   );
   if (shares.rows.length === 0) {
     const start = SCHEMA_SQL.indexOf("create table if not exists share_links");
+    const end = SCHEMA_SQL.indexOf("create table if not exists entitlements");
+    for (const statement of SCHEMA_SQL.slice(start, end).split(";")) {
+      const sql = statement.trim();
+      if (sql) await db.query(sql);
+    }
+  }
+  const entitlements = await db.query(
+    "select 1 from information_schema.tables where table_name = 'entitlements'",
+  );
+  if (entitlements.rows.length === 0) {
+    const start = SCHEMA_SQL.indexOf("create table if not exists entitlements");
     for (const statement of SCHEMA_SQL.slice(start).split(";")) {
       const sql = statement.trim();
       if (sql) await db.query(sql);
