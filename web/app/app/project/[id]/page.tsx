@@ -18,6 +18,7 @@ import {
   applyOpsToConceptPackage,
   repriceConceptPackage,
   reviseConceptPackage,
+  rollbackConcept,
   type ConceptPackage,
 } from "@/lib/engine/loop";
 import { buildPermitReadiness } from "@/lib/engine/permit";
@@ -113,6 +114,7 @@ function ConceptCard({
   onToggle,
   onRevise,
   onApplyVe,
+  onRollback,
   review,
 }: {
   pkg: ConceptPackage;
@@ -123,6 +125,7 @@ function ConceptCard({
   onToggle: () => void;
   onRevise: (text: string) => Promise<string | null>;
   onApplyVe: (suggestion: ValueEngineeringSuggestion) => Promise<string | null>;
+  onRollback: (keep: number) => Promise<string | null>;
   review: Review | null;
 }) {
   const [request, setRequest] = useState("");
@@ -283,14 +286,81 @@ function ConceptCard({
       {latest && latest.rejected.length > 0 && <p className="status-warn">{latest.rejected.join(" ")}</p>}
 
       {history.length > 0 && (
-        <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
-          {history.map((h, i) => (
-            <span key={h.revision.id}>
-              {i + 1}. {h.revision.changeSummary}
-              {i < history.length - 1 ? " → " : ""}
-            </span>
-          ))}
-        </p>
+        <div style={{ margin: "0.75rem 0", fontSize: "0.85rem" }}>
+          <p style={{ margin: "0 0 0.25rem", color: "var(--muted)" }}>History</p>
+          <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+            {[
+              {
+                key: "original",
+                label: "Original concept",
+                health: pkg.healthScore,
+                totalCents: pkg.estimate.totalCents,
+                keep: 0,
+              },
+              ...history.map((h, i) => ({
+                key: h.revision.id,
+                label: `${i + 1}. ${h.revision.changeSummary}`,
+                health: h.healthScore,
+                totalCents: h.estimate.totalCents,
+                keep: i + 1,
+              })),
+            ].map((step, i, steps) => {
+              const isCurrent = i === steps.length - 1;
+              const costDelta = i > 0 ? step.totalCents - steps[i - 1].totalCents : 0;
+              return (
+                <li
+                  key={step.key}
+                  style={{
+                    display: "flex",
+                    gap: "0.75rem",
+                    alignItems: "baseline",
+                    padding: "0.2rem 0",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <span style={{ flex: "1 1 14rem" }}>
+                    {step.label}
+                    {isCurrent && <strong> (current)</strong>}
+                  </span>
+                  <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>
+                    Health {step.health} · {formatUsd(step.totalCents)}
+                    {i > 0 && (
+                      <span className={costDelta > 0 ? "status-warn" : "status-pass"}>
+                        {" "}
+                        ({costDelta >= 0 ? "+" : "−"}
+                        {formatUsd(Math.abs(costDelta))})
+                      </span>
+                    )}
+                  </span>
+                  {!isCurrent && (
+                    <button
+                      className="btn secondary"
+                      style={{ padding: "0.1rem 0.6rem", fontSize: "0.8rem" }}
+                      type="button"
+                      disabled={revising}
+                      onClick={async () => {
+                        if (
+                          !window.confirm(
+                            `Roll back to "${step.label}"? The ${steps.length - 1 - i} later revision(s) will be discarded.`,
+                          )
+                        )
+                          return;
+                        setRevising(true);
+                        try {
+                          setFeedback(await onRollback(step.keep));
+                        } finally {
+                          setRevising(false);
+                        }
+                      }}
+                    >
+                      Roll back
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
 
       <button className="btn secondary" onClick={onToggle}>
@@ -504,6 +574,22 @@ export default function ProjectPage() {
     }
 
     current.packages[idx] = { ...base, revisions: [...(base.revisions ?? []), outcome.pkg] };
+    const saved = saveProject(current);
+    if (!saved.ok) return saved.error;
+    setStorageNotice(saved.warning ?? null);
+    setEntry(loadProject(params.id));
+    if (accountEmail()) void pushProject(current).then((r) => !r.ok && setStorageNotice(r.error));
+    return null;
+  }
+
+  async function handleRollback(conceptId: string, keep: number): Promise<string | null> {
+    const current = loadProject(params.id);
+    if (!current) return "Project disappeared from local storage.";
+    const idx = current.packages.findIndex((p) => p.concept.id === conceptId);
+    if (idx < 0) return "Concept not found.";
+    const rolled = rollbackConcept(current.packages[idx], keep);
+    if (!rolled.ok) return rolled.error;
+    current.packages[idx] = rolled.pkg;
     const saved = saveProject(current);
     if (!saved.ok) return saved.error;
     setStorageNotice(saved.warning ?? null);
@@ -728,6 +814,7 @@ export default function ProjectPage() {
           onToggle={() => setExpanded(expanded === pkg.concept.id ? null : pkg.concept.id)}
           onRevise={(text) => handleRevise(pkg.concept.id, text)}
           onApplyVe={(suggestion) => handleApplyVe(pkg.concept.id, suggestion)}
+          onRollback={(keep) => handleRollback(pkg.concept.id, keep)}
           review={review}
         />
       ))}

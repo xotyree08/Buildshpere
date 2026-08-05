@@ -4,7 +4,7 @@ import type { DesignBrief } from "../types";
 import { generateConcepts, VARIANTS } from "./generate";
 import { runChecks } from "./checks";
 import { estimateRevision, takeoff, valueEngineering } from "./estimate";
-import { runDesignLoop } from "./loop";
+import { reviseConceptPackage, rollbackConcept, runDesignLoop } from "./loop";
 
 const brief: DesignBrief = {
   id: "brief-1",
@@ -160,5 +160,55 @@ describe("runDesignLoop", () => {
       // tight budget → VE suggestions should appear
       expect(p.veSuggestions.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("rollbackConcept", () => {
+  function packageWithTwoRevisions() {
+    const [base] = runDesignLoop(brief, { lotWidthFt: 60, budgetCents: null });
+    const opts = { budgetCents: null };
+    const r1 = reviseConceptPackage(base, "add an office", opts).pkg;
+    if (!r1) throw new Error("first revision failed");
+    const withOne = { ...base, revisions: [r1] };
+    const r2 = reviseConceptPackage(withOne, "remove the office", opts).pkg;
+    if (!r2) throw new Error("second revision failed");
+    return { ...base, revisions: [r1, r2] };
+  }
+
+  it("truncates to any earlier state without recomputing it", () => {
+    const pkg = packageWithTwoRevisions();
+
+    const toFirst = rollbackConcept(pkg, 1);
+    expect(toFirst.ok).toBe(true);
+    if (toFirst.ok) expect(toFirst.pkg.revisions).toEqual([pkg.revisions![0]]);
+
+    const toOriginal = rollbackConcept(pkg, 0);
+    expect(toOriginal.ok).toBe(true);
+    if (toOriginal.ok) {
+      expect(toOriginal.pkg.revisions).toEqual([]);
+      expect(toOriginal.pkg.concept).toEqual(pkg.concept);
+    }
+    // the input package is untouched
+    expect(pkg.revisions).toHaveLength(2);
+  });
+
+  it("revision numbering stays consistent after a rollback", () => {
+    const pkg = packageWithTwoRevisions();
+    const rolled = rollbackConcept(pkg, 1);
+    if (!rolled.ok) throw new Error("rollback failed");
+
+    const next = reviseConceptPackage(rolled.pkg, "add a gym", { budgetCents: null }).pkg;
+    expect(next).not.toBeNull();
+    // history had 1 entry → the replacement revision is r2 again
+    expect(next!.revision.id).toBe(`${pkg.concept.id}-r2`);
+    expect(next!.revision.parentRevisionId).toBe(pkg.revisions![0].revision.id);
+  });
+
+  it("rejects out-of-range targets — including 'roll back to where I already am'", () => {
+    const pkg = packageWithTwoRevisions();
+    expect(rollbackConcept(pkg, 2).ok).toBe(false);
+    expect(rollbackConcept(pkg, -1).ok).toBe(false);
+    expect(rollbackConcept(pkg, 1.5).ok).toBe(false);
+    expect(rollbackConcept({ ...pkg, revisions: undefined }, 0).ok).toBe(false);
   });
 });
