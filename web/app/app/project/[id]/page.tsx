@@ -16,6 +16,8 @@ import { CONCEPT_DISCLAIMER, ESTIMATE_RANGE_CLAIM } from "@/lib/claims";
 import type { Interpretation } from "@/lib/engine/interpret";
 import {
   applyOpsToConceptPackage,
+  freezeMilestone,
+  frozenFloor,
   repriceConceptPackage,
   reviseConceptPackage,
   rollbackConcept,
@@ -25,6 +27,7 @@ import { SetbacksEditor } from "@/components/SetbacksEditor";
 import { buildPermitReadiness } from "@/lib/engine/permit";
 import { buildSitePlan, sanitizeSetbacks, type SetbackRules } from "@/lib/engine/site";
 import { exportFilename, exportProject } from "@/lib/portability";
+import { deriveDesignStatus } from "@/lib/status";
 import { accountEmail, formatUsd, loadProject, saveProject, type StoredProject } from "@/lib/store";
 import { pushProject } from "@/lib/sync";
 import type { DesignCheckResult, ParametricModel, ValueEngineeringSuggestion } from "@/lib/types";
@@ -120,6 +123,7 @@ function ConceptCard({
   onRevise,
   onApplyVe,
   onRollback,
+  onFreeze,
   onSetbacksChange,
   review,
 }: {
@@ -134,6 +138,7 @@ function ConceptCard({
   onRevise: (text: string) => Promise<string | null>;
   onApplyVe: (suggestion: ValueEngineeringSuggestion) => Promise<string | null>;
   onRollback: (keep: number) => Promise<string | null>;
+  onFreeze: (label: string) => Promise<string | null>;
   onSetbacksChange: (rules: SetbackRules | null) => Promise<string | null>;
   review: Review | null;
 }) {
@@ -342,7 +347,16 @@ function ConceptCard({
                       </span>
                     )}
                   </span>
-                  {!isCurrent && (
+                  {(pkg.milestones ?? []).some((m) => m.revisionCount === step.keep) && (
+                    <span
+                      className="status-pass"
+                      title="Frozen milestone — rollback can't go below this point"
+                      style={{ fontSize: "0.8rem" }}
+                    >
+                      ❄ {(pkg.milestones ?? []).find((m) => m.revisionCount === step.keep)!.label}
+                    </span>
+                  )}
+                  {!isCurrent && step.keep >= frozenFloor(pkg) && (
                     <button
                       className="btn secondary"
                       style={{ padding: "0.1rem 0.6rem", fontSize: "0.8rem" }}
@@ -373,9 +387,29 @@ function ConceptCard({
         </div>
       )}
 
-      <button className="btn secondary" onClick={onToggle}>
-        {expanded ? "Hide details" : "Checks, costs & savings"}
-      </button>
+      <p style={{ display: "flex", gap: "0.5rem", margin: "0.5rem 0 0" }}>
+        <button className="btn secondary" onClick={onToggle}>
+          {expanded ? "Hide details" : "Checks, costs & savings"}
+        </button>
+        <button
+          className="btn secondary"
+          type="button"
+          disabled={revising}
+          title="Freeze the current state as an immutable milestone — later changes still append, but rollback can never go below it."
+          onClick={async () => {
+            const label = window.prompt("Name this milestone (e.g. \"Presented to family\"):");
+            if (label === null) return;
+            setRevising(true);
+            try {
+              setFeedback(await onFreeze(label));
+            } finally {
+              setRevising(false);
+            }
+          }}
+        >
+          Freeze milestone
+        </button>
+      </p>
 
       {expanded && (
         <div style={{ marginTop: "1rem" }}>
@@ -622,6 +656,22 @@ export default function ProjectPage() {
     return null;
   }
 
+  async function handleFreeze(conceptId: string, label: string): Promise<string | null> {
+    const current = loadProject(params.id);
+    if (!current) return "Project disappeared from local storage.";
+    const idx = current.packages.findIndex((p) => p.concept.id === conceptId);
+    if (idx < 0) return "Concept not found.";
+    const frozen = freezeMilestone(current.packages[idx], label, Date.now());
+    if (!frozen.ok) return frozen.error;
+    current.packages[idx] = frozen.pkg;
+    const saved = saveProject(current);
+    if (!saved.ok) return saved.error;
+    setStorageNotice(saved.warning ?? null);
+    setEntry(loadProject(params.id));
+    if (accountEmail()) void pushProject(current).then((r) => !r.ok && setStorageNotice(r.error));
+    return null;
+  }
+
   async function handleShare() {
     if (!signedIn) {
       setStorageNotice("Sign in (Account) to create a share link — the link serves your synced copy.");
@@ -673,10 +723,24 @@ export default function ProjectPage() {
     }
   }
 
+  const designStatus = deriveDesignStatus({
+    reviewStatus: review?.status ?? null,
+    revisedSinceReview: review ? (entry.savedAt ?? 0) > Date.parse(review.updatedAt) : false,
+  });
+
   return (
     <main>
       <div className="topbar">
-        <h1>{project.name}</h1>
+        <h1>
+          {project.name}{" "}
+          <span
+            className={designStatus.tone === "muted" ? "" : `status-${designStatus.tone}`}
+            style={{ fontSize: "0.9rem", fontWeight: 500, color: designStatus.tone === "muted" ? "var(--muted)" : undefined }}
+            title={designStatus.meaning}
+          >
+            · {designStatus.label}
+          </span>
+        </h1>
         <span style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
           <button
             className="btn secondary"
@@ -841,6 +905,7 @@ export default function ProjectPage() {
           onRevise={(text) => handleRevise(pkg.concept.id, text)}
           onApplyVe={(suggestion) => handleApplyVe(pkg.concept.id, suggestion)}
           onRollback={(keep) => handleRollback(pkg.concept.id, keep)}
+          onFreeze={(label) => handleFreeze(pkg.concept.id, label)}
           onSetbacksChange={handleSetbacksChange}
           review={review}
         />

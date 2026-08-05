@@ -4,7 +4,7 @@ import type { DesignBrief } from "../types";
 import { generateConcepts, VARIANTS } from "./generate";
 import { runChecks } from "./checks";
 import { estimateRevision, takeoff, valueEngineering } from "./estimate";
-import { reviseConceptPackage, rollbackConcept, runDesignLoop } from "./loop";
+import { freezeMilestone, frozenFloor, reviseConceptPackage, rollbackConcept, runDesignLoop } from "./loop";
 
 const brief: DesignBrief = {
   id: "brief-1",
@@ -210,5 +210,41 @@ describe("rollbackConcept", () => {
     expect(rollbackConcept(pkg, -1).ok).toBe(false);
     expect(rollbackConcept(pkg, 1.5).ok).toBe(false);
     expect(rollbackConcept({ ...pkg, revisions: undefined }, 0).ok).toBe(false);
+  });
+});
+
+describe("freezeMilestone — immutable snapshots (BS-DES-006)", () => {
+  it("freezing protects the state: rollback below the floor is refused by name", () => {
+    const pkg = (() => {
+      const [base] = runDesignLoop(brief, { lotWidthFt: 60, budgetCents: null });
+      const r1 = reviseConceptPackage(base, "add an office", { budgetCents: null }).pkg!;
+      const withOne = { ...base, revisions: [r1] };
+      const r2 = reviseConceptPackage(withOne, "add a gym", { budgetCents: null }).pkg!;
+      return { ...base, revisions: [r1, r2] };
+    })();
+
+    const frozen = freezeMilestone(pkg, "Presented to family", 1000);
+    expect(frozen.ok).toBe(true);
+    if (!frozen.ok) return;
+    expect(frozenFloor(frozen.pkg)).toBe(2);
+
+    // Rolling back below the milestone names it and refuses.
+    const blocked = rollbackConcept(frozen.pkg, 1);
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) expect(blocked.error).toContain("Presented to family");
+
+    // Later revisions still append, and rollback down TO the floor is fine.
+    const r3 = reviseConceptPackage(frozen.pkg, "add a theater", { budgetCents: null }).pkg!;
+    const grown = { ...frozen.pkg, revisions: [...frozen.pkg.revisions!, r3] };
+    const backToFloor = rollbackConcept(grown, 2);
+    expect(backToFloor.ok).toBe(true);
+  });
+
+  it("rejects empty labels and duplicate freezes of the same state", () => {
+    const [base] = runDesignLoop(brief, { lotWidthFt: 60, budgetCents: null });
+    expect(freezeMilestone(base, "   ", 1).ok).toBe(false);
+    const first = freezeMilestone(base, "Original", 1);
+    expect(first.ok).toBe(true);
+    if (first.ok) expect(freezeMilestone(first.pkg, "Again", 2).ok).toBe(false);
   });
 });
