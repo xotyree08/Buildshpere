@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'api/client.dart';
+import 'projects_screen.dart';
 import 'spheres.dart';
 import 'store/gateway.dart';
 import 'store/purchase_service.dart';
@@ -48,6 +50,20 @@ class HomeScreen extends StatelessWidget {
             style: Theme.of(context).textTheme.bodyLarge,
           ),
           const SizedBox(height: 16),
+          Card(
+            child: ListTile(
+              title: const Text('My Projects'),
+              subtitle: const Text('Sign in to see your synced home designs.'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ProjectsScreen(client: ApiClient(transport: HttpTransport())),
+                  ),
+                );
+              },
+            ),
+          ),
           for (final sphere in spheres)
             Card(
               child: ListTile(
