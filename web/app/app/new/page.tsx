@@ -43,6 +43,7 @@ export default function NewProjectPage() {
   const [outdoorKitchen, setOutdoorKitchen] = useState(false);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -59,7 +60,7 @@ export default function NewProjectPage() {
     };
     const budgetCents = Math.round(budget * 100);
     const packages = runDesignLoop(brief, { lotWidthFt: lotWidth, budgetCents, regionCode: region, finishes });
-    saveProject({
+    const saved = saveProject({
       project: {
         id: projectId,
         ownerId: "local",
@@ -76,6 +77,11 @@ export default function NewProjectPage() {
       finishes,
       inspiration: inspiration ?? undefined,
     });
+    if (!saved.ok) {
+      setBusy(false);
+      setSaveError(saved.error);
+      return;
+    }
     router.push(`/app/project/${projectId}`);
   }
 
@@ -204,6 +210,7 @@ export default function NewProjectPage() {
         <button className="btn" disabled={busy} type="submit">
           {busy ? "Generating…" : "Generate concepts"}
         </button>
+        {saveError && <p className="status-fail">{saveError}</p>}
       </form>
     </main>
   );

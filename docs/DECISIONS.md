@@ -53,3 +53,15 @@ never a new style. The analysis seeds the design brief (style pre-selected,
 editable); geometry, checks, and pricing remain exclusively deterministic
 (ADR-007). Without an API key the feature degrades gracefully: the photo is
 kept as project inspiration and the customer picks a style manually.
+
+## ADR-011: The WHOLE failure register binds this codebase — accepted
+
+docs/LESSONS_LEARNED.md distills the previous product's documented failures
+(client-writable entitlements, silent write failures, zero error monitoring,
+blind store rejections, mid-review auth replacement) into twelve rules.
+Rules with a present-tense surface are enforced in code today: surfaced save
+failures with quota degradation (store.ts), a crash-reporting error boundary,
+a health endpoint that names the exact fix per integration, and claims-drift
+tests. Phase-gated rules (server-only entitlements, auth checklist, store
+submission checklist, pre-launch audits) bind the phases that introduce them.
+New code that contradicts a rule needs this ADR amended first.

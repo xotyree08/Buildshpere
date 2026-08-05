@@ -8,6 +8,7 @@ import { FloorPlan } from "@/components/FloorPlan";
 import { MassingView } from "@/components/MassingView";
 import { DEFAULT_FINISHES, FINISH_CATEGORIES } from "@/lib/catalog/materials";
 import { styleInfo } from "@/lib/catalog/styles";
+import { CONCEPT_DISCLAIMER, ESTIMATE_RANGE_CLAIM } from "@/lib/claims";
 import {
   repriceConceptPackage,
   reviseConceptPackage,
@@ -212,6 +213,7 @@ export default function ProjectPage() {
   const params = useParams<{ id: string }>();
   const [entry, setEntry] = useState<StoredProject | null | undefined>(undefined);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [storageNotice, setStorageNotice] = useState<string | null>(null);
 
   useEffect(() => {
     setEntry(loadProject(params.id));
@@ -243,8 +245,9 @@ export default function ProjectPage() {
         finishes: current.finishes,
       }),
     );
-    saveProject(current);
-    setEntry(loadProject(params.id));
+    const saved = saveProject(current);
+    setStorageNotice(saved.ok ? (saved.warning ?? null) : saved.error);
+    if (saved.ok) setEntry(loadProject(params.id));
   }
 
   function handleRevise(conceptId: string, text: string): string | null {
@@ -266,7 +269,9 @@ export default function ProjectPage() {
       ...current.packages[idx],
       revisions: [...(current.packages[idx].revisions ?? []), outcome.pkg],
     };
-    saveProject(current);
+    const saved = saveProject(current);
+    if (!saved.ok) return saved.error;
+    setStorageNotice(saved.warning ?? null);
     setEntry(loadProject(params.id));
     return null;
   }
@@ -280,10 +285,10 @@ export default function ProjectPage() {
       <p style={{ color: "var(--muted)" }}>
         Budget {project.budgetCents != null ? formatUsd(project.budgetCents) : "—"} · lot{" "}
         {project.lotWidthFt}×{project.lotDepthFt} ft ·{" "}
-        {styleInfo(packages[0]?.concept.style)?.label ?? "—"} style · concept-stage estimates ±15%.
-        Concepts are AI-assisted screening designs — not construction documents; professional
-        review comes in Phase 2.
+        {styleInfo(packages[0]?.concept.style)?.label ?? "—"} style · {ESTIMATE_RANGE_CLAIM}.{" "}
+        {CONCEPT_DISCLAIMER}
       </p>
+      {storageNotice && <p className="status-warn">{storageNotice}</p>}
 
       {entry.inspiration && (
         <div className="card" style={{ marginBottom: "1.5rem", display: "flex", gap: "1rem" }}>
