@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { InspirationUpload, type InspirationResult } from "@/components/InspirationUpload";
-import { DEFAULT_FINISHES, FINISH_CATEGORIES, type FinishSelections } from "@/lib/catalog/materials";
+import { DEFAULT_FINISHES, EXTERIOR_CATEGORIES, FINISH_CATEGORIES, type FinishSelections } from "@/lib/catalog/materials";
 import { styleInfo, stylesByCategory } from "@/lib/catalog/styles";
 import { runDesignLoop } from "@/lib/engine/loop";
 import { newId, saveProject } from "@/lib/store";
@@ -165,6 +165,25 @@ export default function NewProjectPage() {
             {styleInfo(style)!.description} Roof: {styleInfo(style)!.roof}.
           </p>
         )}
+
+        <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Exterior materials</span>
+        <div className="field-row" style={{ marginTop: "0.25rem" }}>
+          {EXTERIOR_CATEGORIES.map(({ field, label, options }) => (
+            <label className="field" key={field}>
+              <span>{label}</span>
+              <select
+                value={finishes[field] ?? DEFAULT_FINISHES[field]}
+                onChange={(e) => setFinishes({ ...finishes, [field]: e.target.value })}
+              >
+                {options.map((o) => (
+                  <option key={o.key} value={o.key}>
+                    {o.label} ({o.tier})
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
 
         <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Interior finishes</span>
         <div className="field-row" style={{ marginTop: "0.25rem" }}>

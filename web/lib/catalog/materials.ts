@@ -72,6 +72,36 @@ export const PAINT: DeltaOption[] = [
   { key: "designer", label: "Designer (specialty finishes)", tier: "luxury", deltaPerSqftCents: 300 },
 ];
 
+// ---------- Exterior materials ----------
+// Defaults reproduce the pre-catalog baseline exactly (claims.test.ts holds
+// the estimate honest): siding 1100/sqft wall, roofing 900/sqft, windows $850.
+
+export const SIDING: FlooringOption[] = [
+  { key: "vinyl", label: "Vinyl", tier: "builder", costPerSqftCents: 700 },
+  { key: "engineered_wood", label: "Engineered Wood", tier: "standard", costPerSqftCents: 1000 },
+  { key: "fiber_cement", label: "Fiber Cement", tier: "standard", costPerSqftCents: 1100 },
+  { key: "stucco", label: "Stucco", tier: "premium", costPerSqftCents: 1250 },
+  { key: "cedar", label: "Natural Cedar", tier: "premium", costPerSqftCents: 1500 },
+  { key: "brick_veneer", label: "Brick Veneer", tier: "luxury", costPerSqftCents: 1800 },
+];
+
+export const ROOFING: FlooringOption[] = [
+  { key: "asphalt_3tab", label: "3-Tab Asphalt", tier: "builder", costPerSqftCents: 650 },
+  { key: "architectural_shingle", label: "Architectural Shingle", tier: "standard", costPerSqftCents: 900 },
+  { key: "metal_standing_seam", label: "Standing-Seam Metal", tier: "premium", costPerSqftCents: 1400 },
+  { key: "cedar_shake", label: "Cedar Shake", tier: "premium", costPerSqftCents: 1500 },
+  { key: "clay_tile", label: "Clay Tile", tier: "premium", costPerSqftCents: 1700 },
+  { key: "slate", label: "Natural Slate", tier: "luxury", costPerSqftCents: 2800 },
+];
+
+export const WINDOWS: LumpOption[] = [
+  { key: "builder_vinyl", label: "Builder Vinyl", tier: "builder", costCents: 60000 },
+  { key: "vinyl_lowe", label: "Vinyl Low-E", tier: "standard", costCents: 85000 },
+  { key: "fiberglass", label: "Fiberglass", tier: "premium", costCents: 120000 },
+  { key: "clad_wood", label: "Aluminum-Clad Wood", tier: "premium", costCents: 160000 },
+  { key: "steel", label: "Steel Frame", tier: "luxury", costCents: 260000 },
+];
+
 export interface FinishSelections {
   flooring?: string;
   countertops?: string;
@@ -79,6 +109,9 @@ export interface FinishSelections {
   appliances?: string;
   lighting?: string;
   paint?: string;
+  siding?: string;
+  roofing?: string;
+  windows?: string;
 }
 
 export const DEFAULT_FINISHES: Required<FinishSelections> = {
@@ -88,6 +121,9 @@ export const DEFAULT_FINISHES: Required<FinishSelections> = {
   appliances: "standard",
   lighting: "standard",
   paint: "standard",
+  siding: "fiber_cement",
+  roofing: "architectural_shingle",
+  windows: "vinyl_lowe",
 };
 
 export function pick<T extends FinishOption>(options: T[], key: string | undefined, fallbackKey: string): T {
@@ -101,4 +137,10 @@ export const FINISH_CATEGORIES: { field: keyof FinishSelections; label: string; 
   { field: "appliances", label: "Appliances", options: APPLIANCES },
   { field: "lighting", label: "Lighting", options: LIGHTING },
   { field: "paint", label: "Paint", options: PAINT },
+];
+
+export const EXTERIOR_CATEGORIES: { field: keyof FinishSelections; label: string; options: FinishOption[] }[] = [
+  { field: "siding", label: "Siding", options: SIDING },
+  { field: "roofing", label: "Roofing", options: ROOFING },
+  { field: "windows", label: "Windows", options: WINDOWS },
 ];

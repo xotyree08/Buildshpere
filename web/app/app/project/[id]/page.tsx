@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 
 import { FloorPlan } from "@/components/FloorPlan";
 import { MassingView } from "@/components/MassingView";
-import { DEFAULT_FINISHES, FINISH_CATEGORIES } from "@/lib/catalog/materials";
+import { DEFAULT_FINISHES, EXTERIOR_CATEGORIES, FINISH_CATEGORIES } from "@/lib/catalog/materials";
 import { styleInfo } from "@/lib/catalog/styles";
 import { CONCEPT_DISCLAIMER, ESTIMATE_RANGE_CLAIM } from "@/lib/claims";
 import {
@@ -320,8 +320,27 @@ export default function ProjectPage() {
       )}
 
       <div className="card" style={{ marginBottom: "1.5rem" }}>
-        <h2>Interior finishes</h2>
-        <p>Change a finish and every concept re-prices instantly.</p>
+        <h2>Materials &amp; finishes</h2>
+        <p>Change a selection and every concept re-prices instantly.</p>
+        <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Exterior</span>
+        <div className="field-row">
+          {EXTERIOR_CATEGORIES.map(({ field, label, options }) => (
+            <label className="field" key={field}>
+              <span>{label}</span>
+              <select
+                value={entry?.finishes?.[field] ?? DEFAULT_FINISHES[field]}
+                onChange={(e) => handleFinishChange(field, e.target.value)}
+              >
+                {options.map((o) => (
+                  <option key={o.key} value={o.key}>
+                    {o.label} ({o.tier})
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
+        <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Interior</span>
         <div className="field-row">
           {FINISH_CATEGORIES.map(({ field, label, options }) => (
             <label className="field" key={field}>

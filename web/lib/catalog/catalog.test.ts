@@ -4,7 +4,7 @@ import type { DesignBrief } from "../types";
 import { generateConcepts } from "../engine/generate";
 import { estimateRevision } from "../engine/estimate";
 import { repriceConceptPackage, runDesignLoop } from "../engine/loop";
-import { DEFAULT_FINISHES, FINISH_CATEGORIES } from "./materials";
+import { DEFAULT_FINISHES, EXTERIOR_CATEGORIES, FINISH_CATEGORIES } from "./materials";
 import { STYLE_CATEGORIES, STYLES, styleInfo, stylesByCategory } from "./styles";
 
 const brief: DesignBrief = {
@@ -94,6 +94,43 @@ describe("finish selections", () => {
     expect(luxury.totalCents).toBeGreaterThan(builder.totalCents * 1.15);
     const appliancesLine = luxury.lineItems.find((li) => li.description.includes("Appliances"));
     expect(appliancesLine?.description).toContain("Luxury");
+  });
+
+  it("exterior categories offer at least 5 options each with unique keys", () => {
+    expect(EXTERIOR_CATEGORIES).toHaveLength(3);
+    for (const { field, options } of EXTERIOR_CATEGORIES) {
+      expect(options.length).toBeGreaterThanOrEqual(5);
+      expect(new Set(options.map((o) => o.key)).size).toBe(options.length);
+      expect(DEFAULT_FINISHES[field]).toBeDefined();
+      expect(options.some((o) => o.key === DEFAULT_FINISHES[field])).toBe(true);
+    }
+  });
+
+  it("exterior choices move the estimate and are named in the line items", () => {
+    const model = generateConcepts(brief, 60)[0].model;
+    const slate = estimateRevision(model, "r", "US_NATIONAL", {
+      siding: "brick_veneer",
+      roofing: "slate",
+      windows: "steel",
+    });
+    const builderExt = estimateRevision(model, "r", "US_NATIONAL", {
+      siding: "vinyl",
+      roofing: "asphalt_3tab",
+      windows: "builder_vinyl",
+    });
+    expect(slate.totalCents).toBeGreaterThan(builderExt.totalCents * 1.1);
+    expect(slate.lineItems.some((li) => li.description === "Roofing — Natural Slate")).toBe(true);
+    expect(slate.lineItems.some((li) => li.description === "Siding — Brick Veneer")).toBe(true);
+    expect(slate.lineItems.some((li) => li.description === "Windows — Steel Frame")).toBe(true);
+  });
+
+  it("style cost factor still scales the chosen exterior materials", () => {
+    const model = generateConcepts(brief, 60)[0].model;
+    const victorianSlate = estimateRevision(model, "r", "US_NATIONAL", { styleKey: "victorian", roofing: "slate" });
+    const ranchSlate = estimateRevision(model, "r", "US_NATIONAL", { styleKey: "ranch", roofing: "slate" });
+    const vRoof = victorianSlate.lineItems.find((li) => li.description.startsWith("Roofing"))!;
+    const rRoof = ranchSlate.lineItems.find((li) => li.description.startsWith("Roofing"))!;
+    expect(vRoof.unitCostCents).toBeGreaterThan(rRoof.unitCostCents);
   });
 
   it("repriceConceptPackage moves money but not geometry or health", () => {
