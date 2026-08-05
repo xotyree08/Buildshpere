@@ -7,7 +7,8 @@ import { InspirationUpload, type InspirationResult } from "@/components/Inspirat
 import { DEFAULT_FINISHES, EXTERIOR_CATEGORIES, FINISH_CATEGORIES, type FinishSelections } from "@/lib/catalog/materials";
 import { styleInfo, stylesByCategory } from "@/lib/catalog/styles";
 import { runDesignLoop } from "@/lib/engine/loop";
-import { newId, saveProject } from "@/lib/store";
+import { accountEmail, loadProject, newId, saveProject } from "@/lib/store";
+import { pushProject } from "@/lib/sync";
 import type { DesignBrief, HomeStyle } from "@/lib/types";
 
 const REGIONS = [
@@ -81,6 +82,11 @@ export default function NewProjectPage() {
       setBusy(false);
       setSaveError(saved.error);
       return;
+    }
+    // Best-effort background upload; the project page's sync surfaces failures.
+    if (accountEmail()) {
+      const entry = loadProject(projectId);
+      if (entry) void pushProject(entry);
     }
     router.push(`/app/project/${projectId}`);
   }

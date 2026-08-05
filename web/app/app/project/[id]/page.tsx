@@ -16,7 +16,8 @@ import {
   reviseConceptPackage,
   type ConceptPackage,
 } from "@/lib/engine/loop";
-import { formatUsd, loadProject, saveProject, type StoredProject } from "@/lib/store";
+import { accountEmail, formatUsd, loadProject, saveProject, type StoredProject } from "@/lib/store";
+import { pushProject } from "@/lib/sync";
 
 function scoreColor(score: number): string {
   if (score >= 80) return "var(--accent)";
@@ -274,7 +275,10 @@ export default function ProjectPage() {
     );
     const saved = saveProject(current);
     setStorageNotice(saved.ok ? (saved.warning ?? null) : saved.error);
-    if (saved.ok) setEntry(loadProject(params.id));
+    if (saved.ok) {
+      setEntry(loadProject(params.id));
+      if (accountEmail()) void pushProject(current).then((r) => !r.ok && setStorageNotice(r.error));
+    }
   }
 
   async function handleRevise(conceptId: string, text: string): Promise<string | null> {
@@ -318,6 +322,7 @@ export default function ProjectPage() {
     if (!saved.ok) return saved.error;
     setStorageNotice(saved.warning ?? null);
     setEntry(loadProject(params.id));
+    if (accountEmail()) void pushProject(current).then((r) => !r.ok && setStorageNotice(r.error));
     return null;
   }
 
