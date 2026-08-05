@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { SPHERES } from "@/lib/spheres";
 
 export default function Home() {
@@ -9,6 +11,11 @@ export default function Home() {
           Design, visualize, budget, engineer, permit, and manage the construction of a custom
           home — from first sketch through decades of ownership. Eight integrated systems, one
           source of truth.
+        </p>
+        <p>
+          <Link className="btn" href="/app">
+            Design your home
+          </Link>
         </p>
       </section>
       <section className="grid">
