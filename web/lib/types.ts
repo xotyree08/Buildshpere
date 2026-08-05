@@ -209,6 +209,11 @@ export interface Estimate {
   lineItems: EstimateLineItem[];
 }
 
+/** Machine-readable action behind a VE suggestion; absent = advisory only. */
+export type VeAction =
+  | { kind: "set_finish"; field: string; option: string }
+  | { kind: "remove_room"; target: string };
+
 export interface ValueEngineeringSuggestion {
   id: string;
   estimateId: string;
@@ -216,6 +221,7 @@ export interface ValueEngineeringSuggestion {
   savingsCents: number;
   designImpact: "low" | "med" | "high";
   status: "proposed" | "accepted" | "dismissed";
+  action?: VeAction;
 }
 
 // ---------- Rendering ----------

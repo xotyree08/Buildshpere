@@ -21,6 +21,7 @@ import {
 } from "@/lib/engine/loop";
 import { accountEmail, formatUsd, loadProject, saveProject, type StoredProject } from "@/lib/store";
 import { pushProject } from "@/lib/sync";
+import type { ValueEngineeringSuggestion } from "@/lib/types";
 
 function scoreColor(score: number): string {
   if (score >= 80) return "var(--accent)";
@@ -55,6 +56,7 @@ function ConceptCard({
   expanded,
   onToggle,
   onRevise,
+  onApplyVe,
 }: {
   pkg: ConceptPackage;
   budgetCents: number | null;
@@ -63,6 +65,7 @@ function ConceptCard({
   expanded: boolean;
   onToggle: () => void;
   onRevise: (text: string) => Promise<string | null>;
+  onApplyVe: (suggestion: ValueEngineeringSuggestion) => Promise<string | null>;
 }) {
   const [request, setRequest] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -259,9 +262,28 @@ function ConceptCard({
               <h3>Get back on budget</h3>
               <ul style={{ paddingLeft: "1.2rem" }}>
                 {veSuggestions.map((s) => (
-                  <li key={s.id} style={{ marginBottom: "0.25rem" }}>
-                    {s.description} — saves about <strong>{formatUsd(s.savingsCents)}</strong>{" "}
-                    <span style={{ color: "var(--muted)" }}>({s.designImpact} design impact)</span>
+                  <li key={s.id} style={{ marginBottom: "0.4rem" }}>
+                    {s.description} — saves <strong>{formatUsd(s.savingsCents)}</strong>{" "}
+                    <span style={{ color: "var(--muted)" }}>({s.designImpact} design impact)</span>{" "}
+                    {s.action ? (
+                      <button
+                        className="btn secondary"
+                        style={{ padding: "0.15rem 0.7rem", fontSize: "0.85rem" }}
+                        disabled={revising}
+                        onClick={async () => {
+                          setRevising(true);
+                          try {
+                            setFeedback(await onApplyVe(s));
+                          } finally {
+                            setRevising(false);
+                          }
+                        }}
+                      >
+                        Apply
+                      </button>
+                    ) : (
+                      <span style={{ color: "var(--muted)", fontSize: "0.85rem" }}>(advisory)</span>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -315,6 +337,42 @@ export default function ProjectPage() {
       setEntry(loadProject(params.id));
       if (accountEmail()) void pushProject(current).then((r) => !r.ok && setStorageNotice(r.error));
     }
+  }
+
+  async function handleApplyVe(
+    conceptId: string,
+    suggestion: ValueEngineeringSuggestion,
+  ): Promise<string | null> {
+    if (!suggestion.action) return "This suggestion is advisory — apply it by regenerating.";
+    if (suggestion.action.kind === "set_finish") {
+      handleFinishChange(suggestion.action.field, suggestion.action.option);
+      return null;
+    }
+    // remove_room: flows through the same guarded revision path as any edit.
+    const current = loadProject(params.id);
+    if (!current) return "Project disappeared from local storage.";
+    const idx = current.packages.findIndex((p) => p.concept.id === conceptId);
+    if (idx < 0) return "Concept not found.";
+    const base = current.packages[idx];
+    const outcome = applyOpsToConceptPackage(
+      base,
+      [{ kind: "remove", target: suggestion.action.target }],
+      {
+        budgetCents: current.project.budgetCents,
+        regionCode: current.regionCode,
+        finishes: current.finishes,
+      },
+    );
+    if (!outcome.pkg) {
+      return outcome.unrecognized.length > 0 ? outcome.unrecognized.join(" ") : "Nothing to change.";
+    }
+    current.packages[idx] = { ...base, revisions: [...(base.revisions ?? []), outcome.pkg] };
+    const saved = saveProject(current);
+    if (!saved.ok) return saved.error;
+    setStorageNotice(saved.warning ?? null);
+    setEntry(loadProject(params.id));
+    if (accountEmail()) void pushProject(current).then((r) => !r.ok && setStorageNotice(r.error));
+    return null;
   }
 
   async function handleRevise(conceptId: string, text: string): Promise<string | null> {
@@ -461,6 +519,7 @@ export default function ProjectPage() {
           expanded={expanded === pkg.concept.id}
           onToggle={() => setExpanded(expanded === pkg.concept.id ? null : pkg.concept.id)}
           onRevise={(text) => handleRevise(pkg.concept.id, text)}
+          onApplyVe={(suggestion) => handleApplyVe(pkg.concept.id, suggestion)}
         />
       ))}
     </main>
