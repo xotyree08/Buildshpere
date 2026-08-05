@@ -1,0 +1,197 @@
+"use client";
+
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { useEffect, useState } from "react";
+
+import { FloorPlan } from "@/components/FloorPlan";
+import { MassingView } from "@/components/MassingView";
+import { EXTERIOR_CATEGORIES, FINISH_CATEGORIES, DEFAULT_FINISHES } from "@/lib/catalog/materials";
+import { styleInfo } from "@/lib/catalog/styles";
+import { CONCEPT_DISCLAIMER, ESTIMATE_RANGE_CLAIM } from "@/lib/claims";
+import { formatUsd, loadProject, type StoredProject } from "@/lib/store";
+
+/**
+ * The Design Report: a print-ready deliverable of everything the design
+ * loop produced. Print → Save as PDF is the export path (no server, no
+ * credits) — honest to what concepts are, per the claims constants.
+ */
+export default function ReportPage() {
+  const params = useParams<{ id: string }>();
+  const [entry, setEntry] = useState<StoredProject | null | undefined>(undefined);
+
+  useEffect(() => {
+    setEntry(loadProject(params.id));
+  }, [params.id]);
+
+  if (entry === undefined) return null;
+  if (entry === null)
+    return (
+      <main>
+        <h1>Project not found</h1>
+        <p>
+          <Link className="btn" href="/app">
+            Back to projects
+          </Link>
+        </p>
+      </main>
+    );
+
+  const { project, packages, finishes } = entry;
+  const style = styleInfo(packages[0]?.concept.style);
+  const allSelections = [...EXTERIOR_CATEGORIES, ...FINISH_CATEGORIES];
+
+  return (
+    <main className="report">
+      <div className="topbar no-print">
+        <h1>Design Report</h1>
+        <span style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+          <Link href={`/app/project/${project.id}`}>Back to project</Link>
+          <button className="btn" onClick={() => window.print()}>
+            Print / Save as PDF
+          </button>
+        </span>
+      </div>
+
+      <header>
+        <h1 className="print-only" style={{ marginBottom: 0 }}>
+          {project.name} — Design Report
+        </h1>
+        <h2 className="no-print" style={{ marginTop: 0 }}>
+          {project.name}
+        </h2>
+        <p style={{ color: "var(--muted)" }}>
+          {style?.label ?? "—"} style · budget{" "}
+          {project.budgetCents != null ? formatUsd(project.budgetCents) : "—"} · lot{" "}
+          {project.lotWidthFt}×{project.lotDepthFt} ft · {ESTIMATE_RANGE_CLAIM}
+        </p>
+        <p style={{ color: "var(--muted)", fontSize: "0.9rem" }}>{CONCEPT_DISCLAIMER}</p>
+      </header>
+
+      {entry.inspiration?.analysis?.styleKey && (
+        <section>
+          <h3>Inspiration</h3>
+          <p>
+            Matched {styleInfo(entry.inspiration.analysis.styleKey)?.label} (
+            {Math.round(entry.inspiration.analysis.confidence * 100)}%).{" "}
+            {entry.inspiration.analysis.notes}
+          </p>
+        </section>
+      )}
+
+      <section>
+        <h3>Materials &amp; finishes</h3>
+        <table className="lineitems">
+          <tbody>
+            {allSelections.map(({ field, label, options }) => {
+              const key = finishes?.[field] ?? DEFAULT_FINISHES[field];
+              const option = options.find((o) => o.key === key);
+              return (
+                <tr key={field}>
+                  <td>{label}</td>
+                  <td>
+                    {option?.label ?? key} ({option?.tier ?? "standard"})
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </section>
+
+      {packages.map((pkg) => {
+        const history = pkg.revisions ?? [];
+        const latest = history.length > 0 ? history[history.length - 1] : null;
+        const model = latest ? latest.revision.model : pkg.concept.model;
+        const healthScore = latest ? latest.healthScore : pkg.healthScore;
+        const checkResults = latest ? latest.checkResults : pkg.checkResults;
+        const estimate = latest ? latest.estimate : pkg.estimate;
+        const sqft = Math.round(
+          model.rooms
+            .filter((r) => r.kind !== "garage" && r.kind !== "outdoor")
+            .reduce((a, r) => a + r.rect[2] * r.rect[3], 0),
+        );
+
+        return (
+          <section key={pkg.concept.id} className="report-concept">
+            <h3>
+              {pkg.concept.label}
+              {latest && ` (revision ${history.length})`} — Health {healthScore} —{" "}
+              {formatUsd(estimate.totalCents)}
+            </h3>
+            <p style={{ color: "var(--muted)" }}>
+              {sqft.toLocaleString()} sqft · {pkg.concept.beds} bed / {pkg.concept.baths} bath ·{" "}
+              {model.levels === 2 ? "two-story" : "single-story"} · estimate range{" "}
+              {formatUsd(estimate.lowCents)} – {formatUsd(estimate.highCents)}
+            </p>
+            {latest && (
+              <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
+                Revisions: {history.map((h, i) => `${i + 1}. ${h.revision.changeSummary}`).join(" → ")}
+              </p>
+            )}
+
+            <div className="report-visuals">
+              {Array.from({ length: model.levels }, (_, lvl) => (
+                <div key={lvl} style={{ flex: 1 }}>
+                  {model.levels > 1 && <p style={{ fontSize: "0.8rem", margin: "0 0 0.25rem" }}>Level {lvl + 1}</p>}
+                  <FloorPlan model={model} level={lvl} />
+                </div>
+              ))}
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: "0.8rem", margin: "0 0 0.25rem" }}>Massing</p>
+                <MassingView model={model} style={pkg.concept.style} />
+              </div>
+            </div>
+
+            <h4>Design health checks</h4>
+            <table className="lineitems">
+              <tbody>
+                {checkResults.map((r, i) => (
+                  <tr key={i}>
+                    <td style={{ whiteSpace: "nowrap" }}>{r.check.replace(/_/g, " ")}</td>
+                    <td className={`status-${r.status}`}>{r.status}</td>
+                    <td>{r.detail}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <h4>Estimate</h4>
+            <table className="lineitems">
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Qty</th>
+                  <th>Unit</th>
+                  <th>Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {estimate.lineItems.map((li) => (
+                  <tr key={li.id}>
+                    <td>{li.description}</td>
+                    <td>{li.qty.toLocaleString()}</td>
+                    <td>{li.unit}</td>
+                    <td>{formatUsd(Math.round(li.qty * li.unitCostCents))}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td colSpan={3}>
+                    <strong>Total ({estimate.regionCode.replace(/_/g, " ")})</strong>
+                  </td>
+                  <td>
+                    <strong>{formatUsd(estimate.totalCents)}</strong>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+        );
+      })}
+
+      <footer style={{ color: "var(--muted)", fontSize: "0.85rem", marginTop: "2rem" }}>
+        Generated by BuildSphere. {CONCEPT_DISCLAIMER}
+      </footer>
+    </main>
+  );
+}
