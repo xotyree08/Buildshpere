@@ -1,0 +1,7 @@
+node_modules
+.next
+.git
+*.test.ts
+Dockerfile
+.dockerignore
+README.md

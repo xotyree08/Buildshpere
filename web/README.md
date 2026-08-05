@@ -20,6 +20,31 @@ Environment (all optional until the corresponding feature lands): `DATABASE_URL`
 > ([LESSONS_LEARNED.md](../docs/LESSONS_LEARNED.md) L10). `/api/health`
 > reports every integration with the exact fix when unconfigured.
 
+### Deploying
+
+Two equally supported paths — pick whichever host you already have:
+
+**Vercel (fastest):** import the repo, set the root directory to `web/`,
+add the env vars below, deploy. Vercel builds and runs Next natively
+(it ignores the standalone setting).
+
+**Any Node host or container platform (Fly, Railway, Render, a VPS):**
+the build produces a self-contained bundle (`output: "standalone"`), and
+`web/Dockerfile` packages it (multi-stage, non-root). Without Docker, the
+same bundle runs directly on any machine with Node:
+
+```bash
+npm run build
+node .next/standalone/server.js   # PORT=3000 by default
+```
+
+Set in the deployment environment: `DATABASE_URL` (enables accounts,
+sync, professional reviews, and share links — see below), `AI_API_KEY`
+(enables inspiration-photo analysis and AI revision interpretation), and
+`PROFESSIONAL_ACCESS_CODE` (enables professional role upgrades). All are
+optional; every feature degrades honestly without its var, and
+`/api/health` names the exact fix for anything unconfigured.
+
 ### Enabling accounts & sync (production database)
 
 The auth + sync stack is verified against PostgreSQL 16; any plain Postgres
