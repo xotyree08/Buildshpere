@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { ElevationView } from "@/components/ElevationView";
 import { FloorPlan } from "@/components/FloorPlan";
 import { ElectricalPlanView } from "@/components/ElectricalPlanView";
+import { PlumbingPlanView } from "@/components/PlumbingPlanView";
 import { MassingView } from "@/components/MassingView";
 import { ReviewSection, type Review } from "@/components/ReviewSection";
 import { SitePlanView } from "@/components/SitePlanView";
@@ -157,7 +158,7 @@ function ConceptCard({
   const [request, setRequest] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [revising, setRevising] = useState(false);
-  const [view, setView] = useState<"plan" | "massing" | "viewer3d" | "elevations" | "site" | "walkthrough" | "electrical">("plan");
+  const [view, setView] = useState<"plan" | "massing" | "viewer3d" | "elevations" | "site" | "walkthrough" | "electrical" | "plumbing">("plan");
 
   const { concept } = pkg;
   const history = pkg.revisions ?? [];
@@ -261,6 +262,13 @@ function ConceptCard({
         >
           Electrical
         </button>
+        <button
+          className={view === "plumbing" ? "btn" : "btn secondary"}
+          onClick={() => setView("plumbing")}
+          type="button"
+        >
+          Plumbing
+        </button>
       </p>
 
       {view === "plan" ? (
@@ -302,6 +310,13 @@ function ConceptCard({
           <div key={lvl} style={{ margin: "0.75rem 0" }}>
             {model.levels > 1 && <p style={{ margin: "0 0 0.25rem", fontSize: "0.8rem" }}>Level {lvl + 1}</p>}
             <ElectricalPlanView model={model} level={lvl} />
+          </div>
+        ))
+      ) : view === "plumbing" ? (
+        Array.from({ length: model.levels }, (_, lvl) => (
+          <div key={lvl} style={{ margin: "0.75rem 0" }}>
+            {model.levels > 1 && <p style={{ margin: "0 0 0.25rem", fontSize: "0.8rem" }}>Level {lvl + 1}</p>}
+            <PlumbingPlanView model={model} level={lvl} />
           </div>
         ))
       ) : (
