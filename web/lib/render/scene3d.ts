@@ -28,7 +28,7 @@ export interface Box3 {
   h: number;
   d: number;
   color: string;
-  kind: "floor" | "wall" | "window" | "door" | "slab";
+  kind: "floor" | "wall" | "window" | "door" | "slab" | "trim" | "plinth" | "drive" | "path" | "stoop";
 }
 
 export interface Prism {
@@ -38,10 +38,37 @@ export interface Prism {
   color: string;
 }
 
+export interface Tree {
+  x: number;
+  z: number;
+  trunkH: number;
+  canopyR: number;
+}
+
+export interface Bush {
+  x: number;
+  z: number;
+  r: number;
+}
+
 export interface Scene3D {
   boxes: Box3[];
   roofs: Prism[];
+  trees: Tree[];
+  bushes: Bush[];
   bounds: { cx: number; cz: number; w: number; d: number; h: number };
+}
+
+/** Deterministic PRNG so landscaping never shimmers between renders. */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 function wallBoxes(room: Room, base: number, height: number, color: string): Box3[] {
@@ -78,6 +105,9 @@ export function buildScene3D(
       kind: "floor",
     });
 
+    if (room.level === 0 && room.kind !== "outdoor") {
+      boxes.push({ x: x - 0.15, y: -1.2, z: z - 0.15, w: w + 0.3, h: 1.6, d: d + 0.3, color: "#8d8880", kind: "plinth" });
+    }
     if (room.kind === "outdoor") {
       // Porch/deck: railing-height perimeter instead of full walls.
       boxes.push(...wallBoxes(room, base, RAIL_H, palette.trim));
@@ -95,10 +125,33 @@ export function buildScene3D(
       const kind = isWindow ? ("window" as const) : ("door" as const);
       const y = base + sill;
       const h = head - sill;
-      if (o.wall === "n") boxes.push({ x: x + o.offsetFt, y, z: z - 0.1, w: o.widthFt, h, d: t, color, kind });
-      else if (o.wall === "s") boxes.push({ x: x + o.offsetFt, y, z: z + d - WALL_T - 0.1, w: o.widthFt, h, d: t, color, kind });
-      else if (o.wall === "w") boxes.push({ x: x - 0.1, y, z: z + o.offsetFt, w: t, h, d: o.widthFt, color, kind });
-      else boxes.push({ x: x + w - WALL_T - 0.1, y, z: z + o.offsetFt, w: t, h, d: o.widthFt, color, kind });
+      const TRIM = 0.35;
+      const tt = WALL_T + 0.3; // trim sits proud of the glass
+      const pushWithTrim = (bx: number, bz: number, bw: number, bd: number, alongX: boolean) => {
+        boxes.push({ x: bx, y, z: bz, w: bw, h, d: bd, color, kind });
+        if (alongX) {
+          boxes.push({ x: bx - TRIM, y: y - TRIM, z: bz - 0.05, w: bw + 2 * TRIM, h: TRIM, d: tt, color: palette.trim, kind: "trim" });
+          boxes.push({ x: bx - TRIM, y: y + h, z: bz - 0.05, w: bw + 2 * TRIM, h: TRIM, d: tt, color: palette.trim, kind: "trim" });
+          boxes.push({ x: bx - TRIM, y, z: bz - 0.05, w: TRIM, h, d: tt, color: palette.trim, kind: "trim" });
+          boxes.push({ x: bx + bw, y, z: bz - 0.05, w: TRIM, h, d: tt, color: palette.trim, kind: "trim" });
+          if (isWindow) boxes.push({ x: bx + bw / 2 - 0.06, y, z: bz - 0.02, w: 0.12, h, d: tt, color: palette.trim, kind: "trim" });
+        } else {
+          boxes.push({ x: bx - 0.05, y: y - TRIM, z: bz - TRIM, w: tt, h: TRIM, d: bd + 2 * TRIM, color: palette.trim, kind: "trim" });
+          boxes.push({ x: bx - 0.05, y: y + h, z: bz - TRIM, w: tt, h: TRIM, d: bd + 2 * TRIM, color: palette.trim, kind: "trim" });
+          boxes.push({ x: bx - 0.05, y, z: bz - TRIM, w: tt, h, d: TRIM, color: palette.trim, kind: "trim" });
+          boxes.push({ x: bx - 0.05, y, z: bz + bd, w: tt, h, d: TRIM, color: palette.trim, kind: "trim" });
+          if (isWindow) boxes.push({ x: bx - 0.02, y, z: bz + bd / 2 - 0.06, w: tt, h, d: 0.12, color: palette.trim, kind: "trim" });
+        }
+        if (!isWindow) {
+          // A stoop under every exterior door.
+          if (alongX) boxes.push({ x: bx - 0.8, y: base - FLOOR_T, z: bz - 2.6, w: bw + 1.6, h: FLOOR_T + 0.15, d: 3, color: "#b9b4a8", kind: "stoop" });
+          else boxes.push({ x: bx - 2.6, y: base - FLOOR_T, z: bz - 0.8, w: 3, h: FLOOR_T + 0.15, d: bd + 1.6, color: "#b9b4a8", kind: "stoop" });
+        }
+      };
+      if (o.wall === "n") pushWithTrim(x + o.offsetFt, z - 0.1, o.widthFt, t, true);
+      else if (o.wall === "s") pushWithTrim(x + o.offsetFt, z + d - WALL_T - 0.1, o.widthFt, t, true);
+      else if (o.wall === "w") pushWithTrim(x - 0.1, z + o.offsetFt, t, o.widthFt, false);
+      else pushWithTrim(x + w - WALL_T - 0.1, z + o.offsetFt, t, o.widthFt, false);
     }
   }
 
@@ -169,6 +222,77 @@ export function buildScene3D(
     }
   }
 
+  // Fascia boards along pitched-roof eaves, in trim color.
+  for (const roof of roofs) {
+    const eaveY = Math.min(...roof.vertices.map((v) => v[1]));
+    const eaves = roof.vertices.filter((v) => v[1] === eaveY);
+    const minEx = Math.min(...eaves.map((v) => v[0]));
+    const maxEx = Math.max(...eaves.map((v) => v[0]));
+    const minEz = Math.min(...eaves.map((v) => v[2]));
+    const maxEz = Math.max(...eaves.map((v) => v[2]));
+    boxes.push(
+      { x: minEx, y: eaveY - 0.6, z: minEz - 0.05, w: maxEx - minEx, h: 0.6, d: 0.3, color: palette.trim, kind: "trim" },
+      { x: minEx, y: eaveY - 0.6, z: maxEz - 0.25, w: maxEx - minEx, h: 0.6, d: 0.3, color: palette.trim, kind: "trim" },
+      { x: minEx - 0.05, y: eaveY - 0.6, z: minEz, w: 0.3, h: 0.6, d: maxEz - minEz, color: palette.trim, kind: "trim" },
+      { x: maxEx - 0.25, y: eaveY - 0.6, z: minEz, w: 0.3, h: 0.6, d: maxEz - minEz, color: palette.trim, kind: "trim" },
+    );
+  }
+
+  // Landscaping: driveway to the garage, walkway to the front door, and
+  // seeded trees/bushes that never move between renders.
+  const ground = model.rooms.filter((r) => r.level === 0);
+  const frontZ = Math.min(...ground.map((r) => r.rect[1]));
+  const garage = ground.find((r) => r.kind === "garage");
+  if (garage) {
+    // The driveway extends outward from whichever wall holds the garage
+    // door — front-loaded, side-loaded, and alley-loaded garages all work.
+    const [gx, gz, gw, gd] = garage.rect;
+    const doorWall = model.openings.find((o) => o.roomKey === garage.key && o.kind === "door")?.wall ?? "n";
+    if (doorWall === "n") boxes.push({ x: gx + 0.8, y: -0.34, z: gz - 22, w: gw - 1.6, h: 0.3, d: 22.2, color: "#a8a49c", kind: "drive" });
+    else if (doorWall === "s") boxes.push({ x: gx + 0.8, y: -0.34, z: gz + gd - 0.2, w: gw - 1.6, h: 0.3, d: 22.2, color: "#a8a49c", kind: "drive" });
+    else if (doorWall === "w") boxes.push({ x: gx - 22, y: -0.34, z: gz + 0.8, w: 22.2, h: 0.3, d: gd - 1.6, color: "#a8a49c", kind: "drive" });
+    else boxes.push({ x: gx + gw - 0.2, y: -0.34, z: gz + 0.8, w: 22.2, h: 0.3, d: gd - 1.6, color: "#a8a49c", kind: "drive" });
+  }
+  // Walkway to the entry: aim at a street-facing door if one exists,
+  // otherwise at the centre of the front porch or front-most living room.
+  const frontDoor = model.openings.find((o) => {
+    if (o.kind !== "door" || o.wall !== "n") return false;
+    const room = ground.find((r) => r.key === o.roomKey && r.kind !== "garage");
+    return room ? Math.abs(room.rect[1] - frontZ) < 0.5 : false;
+  });
+  const frontRooms = ground.filter((r) => Math.abs(r.rect[1] - frontZ) < 0.5 && r.kind !== "garage");
+  const entryRoom = frontDoor
+    ? ground.find((r) => r.key === frontDoor.roomKey)!
+    : (frontRooms.find((r) => r.kind === "outdoor") ?? frontRooms.find((r) => r.kind === "living") ?? frontRooms[0]);
+  if (entryRoom) {
+    const px = frontDoor
+      ? entryRoom.rect[0] + frontDoor.offsetFt + frontDoor.widthFt / 2 - 2
+      : entryRoom.rect[0] + entryRoom.rect[2] / 2 - 2;
+    boxes.push({ x: px, y: -0.36, z: frontZ - 22, w: 4, h: 0.3, d: 22.2, color: "#b6b1a6", kind: "path" });
+  }
+
+  const trees: Tree[] = [];
+  const bushes: Bush[] = [];
+  const seed = model.rooms.reduce((s, r) => s + r.rect[0] * 7 + r.rect[1] * 13 + r.rect[2] * 3 + r.rect[3], model.rooms.length * 97);
+  const rand = mulberry32(Math.floor(seed));
+  const minGx = Math.min(...ground.map((r) => r.rect[0]));
+  const maxGx = Math.max(...ground.map((r) => r.rect[0] + r.rect[2]));
+  const maxGz = Math.max(...ground.map((r) => r.rect[1] + r.rect[3]));
+  for (let i = 0; i < 7; i++) {
+    const side = rand();
+    const tx = side < 0.4 ? minGx - 8 - rand() * 16 : side < 0.8 ? maxGx + 8 + rand() * 16 : minGx + rand() * (maxGx - minGx);
+    const tz = side < 0.8 ? frontZ - 6 + rand() * (maxGz - frontZ + 14) : maxGz + 8 + rand() * 12;
+    trees.push({ x: tx, z: tz, trunkH: 6 + rand() * 4, canopyR: 4.5 + rand() * 3 });
+  }
+  // Bushes along the front facade between openings.
+  for (const room of ground.filter((r) => Math.abs(r.rect[1] - frontZ) < 0.5 && r.kind !== "garage" && r.kind !== "outdoor")) {
+    const [rx, rz, rw] = room.rect;
+    const n = Math.max(1, Math.floor(rw / 9));
+    for (let i = 0; i < n; i++) {
+      bushes.push({ x: rx + ((i + 0.5) * rw) / n, z: rz - 2.2, r: 1.4 + rand() * 0.8 });
+    }
+  }
+
   const xs = boxes.flatMap((b) => [b.x, b.x + b.w]);
   const zs = boxes.flatMap((b) => [b.z, b.z + b.d]);
   const ys = boxes.flatMap((b) => [b.y + b.h]).concat(roofs.flatMap((r) => r.vertices.map((v) => v[1])));
@@ -179,6 +303,8 @@ export function buildScene3D(
   return {
     boxes,
     roofs,
+    trees,
+    bushes,
     bounds: {
       cx: (minX + maxX) / 2,
       cz: (minZ + maxZ) / 2,

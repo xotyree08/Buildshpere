@@ -76,3 +76,41 @@ describe("buildScene3D", () => {
     }
   });
 });
+
+describe("architectural detail and landscaping", () => {
+  const model = generateConcepts(brief, 60)[0].model;
+
+  it("windows get trim frames, doors get stoops, ground rooms get plinths", () => {
+    const scene = buildScene3D(model, "craftsman");
+    const kinds = scene.boxes.map((b) => b.kind);
+    expect(kinds.filter((k) => k === "trim").length).toBeGreaterThan(4);
+    expect(kinds).toContain("stoop");
+    expect(kinds).toContain("plinth");
+  });
+
+  it("the driveway extends outward from the garage-door wall; a front door earns a walkway", () => {
+    const scene = buildScene3D(model, "craftsman");
+    const drive = scene.boxes.find((b) => b.kind === "drive");
+    expect(drive).toBeDefined();
+    // This plan's garage door faces the rear (alley access) — the drive
+    // must sit fully beyond the garage's rear wall, not inside the house.
+    const garage = model.rooms.find((r) => r.kind === "garage")!;
+    expect(drive!.z).toBeGreaterThanOrEqual(garage.rect[1] + garage.rect[3] - 0.5);
+    expect(scene.boxes.some((b) => b.kind === "path")).toBe(true);
+  });
+
+  it("landscaping is deterministic and stays off the footprint", () => {
+    const a = buildScene3D(model, "craftsman");
+    const b = buildScene3D(model, "craftsman");
+    expect(a.trees).toEqual(b.trees);
+    expect(a.bushes).toEqual(b.bushes);
+    expect(a.trees.length).toBeGreaterThan(3);
+    const ground = model.rooms.filter((r) => r.level === 0);
+    for (const tree of a.trees) {
+      const inside = ground.some(
+        (r) => tree.x > r.rect[0] && tree.x < r.rect[0] + r.rect[2] && tree.z > r.rect[1] && tree.z < r.rect[1] + r.rect[3],
+      );
+      expect(inside).toBe(false);
+    }
+  });
+});
