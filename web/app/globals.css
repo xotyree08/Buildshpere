@@ -95,6 +95,7 @@ main {
   --plan-outdoor: #e0eed6;
   --plan-window: #bcd6ef;
   --plan-roof: #cbbfa8;
+  --elev-wall: #efece3;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -109,6 +110,7 @@ main {
     --plan-outdoor: #2d3a26;
     --plan-window: #35506b;
     --plan-roof: #4a4234;
+    --elev-wall: #2a2a27;
   }
 }
 

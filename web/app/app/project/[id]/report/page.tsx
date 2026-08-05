@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { ElevationView } from "@/components/ElevationView";
 import { FloorPlan } from "@/components/FloorPlan";
 import { MassingView } from "@/components/MassingView";
 import { EXTERIOR_CATEGORIES, FINISH_CATEGORIES, DEFAULT_FINISHES } from "@/lib/catalog/materials";
@@ -140,6 +141,16 @@ export default function ReportPage() {
               <div style={{ flex: 1 }}>
                 <p style={{ fontSize: "0.8rem", margin: "0 0 0.25rem" }}>Massing</p>
                 <MassingView model={model} style={pkg.concept.style} />
+              </div>
+            </div>
+            <div className="report-visuals">
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: "0.8rem", margin: "0 0 0.25rem" }}>Front elevation (north)</p>
+                <ElevationView model={model} style={pkg.concept.style} direction="north" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: "0.8rem", margin: "0 0 0.25rem" }}>Side elevation (east)</p>
+                <ElevationView model={model} style={pkg.concept.style} direction="east" />
               </div>
             </div>
 
