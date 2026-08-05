@@ -129,7 +129,19 @@ export default function SchedulePage() {
             </select>
           </label>
           <Link href={`/app/project/${project.id}`}>Back to project</Link>
-          <button className="btn" onClick={() => window.print()}>
+          <button
+            className="btn"
+            onClick={() => {
+              void import("@/lib/pdf/documents").then(({ generateSchedulePdf }) =>
+                generateSchedulePdf(project.name, schedule).save(
+                  `${project.name.replace(/[^\w-]+/g, "-")}-schedule.pdf`,
+                ),
+              );
+            }}
+          >
+            Download PDF
+          </button>
+          <button className="btn secondary" onClick={() => window.print()}>
             Print
           </button>
         </span>
