@@ -22,6 +22,7 @@ import {
 } from "@/lib/engine/loop";
 import { buildPermitReadiness } from "@/lib/engine/permit";
 import { buildSitePlan } from "@/lib/engine/site";
+import { exportFilename, exportProject } from "@/lib/portability";
 import { accountEmail, formatUsd, loadProject, saveProject, type StoredProject } from "@/lib/store";
 import { pushProject } from "@/lib/sync";
 import type { DesignCheckResult, ParametricModel, ValueEngineeringSuggestion } from "@/lib/types";
@@ -514,6 +515,24 @@ export default function ProjectPage() {
       <div className="topbar">
         <h1>{project.name}</h1>
         <span style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+          <button
+            className="btn secondary"
+            style={{ padding: "0.3rem 0.8rem" }}
+            type="button"
+            onClick={() => {
+              const blob = new Blob([JSON.stringify(exportProject(entry), null, 2)], {
+                type: "application/json",
+              });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = exportFilename(entry);
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+          >
+            Export
+          </button>
           <Link href={`/app/project/${project.id}/report`}>Design report</Link>
           <Link href="/app">All projects</Link>
         </span>
