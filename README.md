@@ -19,9 +19,16 @@ Rather than acting as a simple floor plan generator, BuildSphere functions as a 
 | **BuildSphere Pro** | Construction management: scheduling, draws, change orders, punch lists |
 | **HomeTwin** | Permanent digital twin of the finished home, inheritable by future owners |
 
-## Documentation
+## Repository Structure
 
-- [Platform Overview](docs/PLATFORM_OVERVIEW.md) — the full v1.0 product overview: vision, target users, platform components, the eight systems in detail, AI modules, marketplace, revenue model, security, technology stack, roadmap, and KPIs.
+| Path | Contents |
+| --- | --- |
+| [`docs/PLATFORM_OVERVIEW.md`](docs/PLATFORM_OVERVIEW.md) | Full v1.0 product overview: vision, users, components, revenue model, roadmap, KPIs |
+| [`docs/systems/`](docs/systems) | Per-system specs for all eight spheres |
+| [`docs/MVP_PHASE1.md`](docs/MVP_PHASE1.md) | Phase 1 MVP scope, core data model, and API sketch |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Architecture decision record |
+| [`web/`](web) | Next.js (App Router, TypeScript) web app — the MVP surface |
+| [`mobile/`](mobile) | Flutter homeowner app shell |
 
 ## Vision
 
