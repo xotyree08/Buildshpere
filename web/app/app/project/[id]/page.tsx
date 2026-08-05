@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { ElevationView } from "@/components/ElevationView";
 import { FloorPlan } from "@/components/FloorPlan";
 import { MassingView } from "@/components/MassingView";
 import { ReviewSection } from "@/components/ReviewSection";
@@ -61,7 +62,7 @@ function ConceptCard({
   const [request, setRequest] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [revising, setRevising] = useState(false);
-  const [view, setView] = useState<"plan" | "massing">("plan");
+  const [view, setView] = useState<"plan" | "massing" | "elevations">("plan");
 
   const { concept } = pkg;
   const history = pkg.revisions ?? [];
@@ -130,6 +131,13 @@ function ConceptCard({
         >
           3D massing
         </button>
+        <button
+          className={view === "elevations" ? "btn" : "btn secondary"}
+          onClick={() => setView("elevations")}
+          type="button"
+        >
+          Elevations
+        </button>
       </p>
 
       {view === "plan" ? (
@@ -139,12 +147,23 @@ function ConceptCard({
             <FloorPlan model={model} level={lvl} />
           </div>
         ))
-      ) : (
+      ) : view === "massing" ? (
         <div style={{ margin: "0.75rem 0" }}>
           <MassingView model={model} style={concept.style} />
           <p style={{ margin: "0.25rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>
             Massing preview — photorealistic rendering arrives with the ModelSphere pipeline.
           </p>
+        </div>
+      ) : (
+        <div style={{ margin: "0.75rem 0", display: "flex", gap: "1.5rem", flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 260px" }}>
+            <p style={{ margin: "0 0 0.25rem", fontSize: "0.8rem" }}>Front elevation (north)</p>
+            <ElevationView model={model} style={concept.style} direction="north" />
+          </div>
+          <div style={{ flex: "1 1 260px" }}>
+            <p style={{ margin: "0 0 0.25rem", fontSize: "0.8rem" }}>Side elevation (east)</p>
+            <ElevationView model={model} style={concept.style} direction="east" />
+          </div>
         </div>
       )}
 
