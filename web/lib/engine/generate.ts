@@ -19,7 +19,7 @@ import type {
   RoomKind,
 } from "../types";
 
-interface RoomSpec {
+export interface RoomSpec {
   kind: RoomKind;
   label: string;
   areaSqft: number;
@@ -158,6 +158,29 @@ function addOpenings(model: ParametricModel): void {
   }
 }
 
+/**
+ * Pack per-level room specs into a complete model with openings.
+ * Shared by initial generation and by the revision engine, so a revised
+ * program flows through exactly the same layout rules.
+ */
+export function assembleModel(levelSpecs: RoomSpec[][], maxRowWidthFt: number): ParametricModel {
+  const rooms: Room[] = [];
+  let startKey = 0;
+  levelSpecs.forEach((specs, level) => {
+    const packed = packLevel(specs, level, maxRowWidthFt, startKey);
+    startKey += packed.length;
+    rooms.push(...packed);
+  });
+  const model: ParametricModel = {
+    schemaVersion: 1,
+    levels: levelSpecs.length,
+    rooms,
+    openings: [],
+  };
+  addOpenings(model);
+  return model;
+}
+
 export interface ConceptVariant {
   label: string;
   /** Fraction of lot width the plan may use per row. */
@@ -177,27 +200,20 @@ export function generateConcepts(brief: DesignBrief, lotWidthFt: number | null):
     const specs = programRooms(brief.program);
     const maxRow = Math.max(24, lot * variant.rowWidthFactor);
 
-    let rooms: Room[];
+    let levelSpecs: RoomSpec[][];
     if (variant.twoStory) {
       const publicSpecs = specs.filter((s) => s.public || s.kind === "garage" || s.kind === "laundry");
       const privateSpecs = specs.filter((s) => !publicSpecs.includes(s));
       // keep one bath downstairs for accessibility
       const downBathIdx = privateSpecs.findIndex((s) => s.kind === "bathroom");
       if (downBathIdx >= 0) publicSpecs.push(...privateSpecs.splice(downBathIdx, 1));
-      const level0 = packLevel(publicSpecs, 0, maxRow, 0);
-      const level1 = packLevel(privateSpecs, 1, maxRow, level0.length);
-      rooms = [...level0, ...level1];
+      levelSpecs = [publicSpecs, privateSpecs];
     } else {
-      rooms = packLevel(specs, 0, maxRow, 0);
+      levelSpecs = [specs];
     }
 
-    const model: ParametricModel = {
-      schemaVersion: 1,
-      levels: variant.twoStory ? 2 : 1,
-      rooms,
-      openings: [],
-    };
-    addOpenings(model);
+    const model = assembleModel(levelSpecs, maxRow);
+    const rooms = model.rooms;
 
     const sqft = Math.round(
       rooms.filter((r) => r.kind !== "garage" && r.kind !== "outdoor").reduce((a, r) => a + r.rect[2] * r.rect[3], 0),
