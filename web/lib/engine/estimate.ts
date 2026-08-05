@@ -145,6 +145,18 @@ const SOFT_COST_PCT = 0.08;
 const CONTINGENCY_PCT = 0.1;
 const CONCEPT_RANGE_PCT = 0.15;
 
+/** Bump when unit costs or entries change — shown on every estimate. */
+export const PRICE_BOOK_VERSION = "buildsphere-book-v1";
+
+/** One provenance string per line (§22.3): book, factors, quantity basis. */
+function provenance(entry: BookEntry, factor: number, regionCode: string, style: number): string {
+  const parts = [PRICE_BOOK_VERSION];
+  parts.push(`${regionCode.replace(/_/g, " ")} ×${factor.toFixed(2)}`);
+  if (style !== 1.0) parts.push(`style ×${style.toFixed(2)}`);
+  parts.push(entry.source === "takeoff" ? "qty measured from plan" : "allowance");
+  return parts.join(" · ");
+}
+
 export function estimateRevision(
   model: ParametricModel,
   revisionId: string,
@@ -168,6 +180,9 @@ export function estimateRevision(
         unit: entry.unit,
         unitCostCents: Math.round(entry.unitCostCents * factor * style),
         source: entry.source,
+        // "high" is reserved for vendor quotes, which don't exist yet.
+        confidence: entry.source === "takeoff" ? ("medium" as const) : ("low" as const),
+        sourceDetail: provenance(entry, factor, regionCode, style),
       };
     })
     .filter((li) => li.qty > 0);
@@ -186,6 +201,8 @@ export function estimateRevision(
       unit: "ls",
       unitCostCents: Math.round(softCents),
       source: "allowance",
+      confidence: "low",
+      sourceDetail: `${PRICE_BOOK_VERSION} · ${SOFT_COST_PCT * 100}% of hard costs · allowance`,
     },
     {
       id: `li-cont`,
@@ -196,6 +213,8 @@ export function estimateRevision(
       unit: "ls",
       unitCostCents: Math.round(contingencyCents),
       source: "allowance",
+      confidence: "low",
+      sourceDetail: `${PRICE_BOOK_VERSION} · ${CONTINGENCY_PCT * 100}% of hard+soft · allowance`,
     },
   );
 
@@ -209,6 +228,8 @@ export function estimateRevision(
     highCents: Math.round(totalCents * (1 + CONCEPT_RANGE_PCT)),
     regionCode,
     lineItems,
+    priceBookVersion: PRICE_BOOK_VERSION,
+    pricedAt: new Date().toISOString(),
   };
 }
 

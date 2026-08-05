@@ -179,6 +179,12 @@ export default function ReportPage() {
             </table>
 
             <h4>Estimate</h4>
+            <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 0.35rem" }}>
+              Priced {estimate.pricedAt ? new Date(estimate.pricedAt).toLocaleDateString() : "—"} ·{" "}
+              {estimate.priceBookVersion ?? "pre-provenance estimate — regenerate to stamp"} · confidence
+              is per line: measured quantities price at medium, allowances at low; high is reserved for
+              vendor quotes.
+            </p>
             <table className="lineitems">
               <thead>
                 <tr>
@@ -186,6 +192,8 @@ export default function ReportPage() {
                   <th>Qty</th>
                   <th>Unit</th>
                   <th>Cost</th>
+                  <th>Source</th>
+                  <th>Confidence</th>
                 </tr>
               </thead>
               <tbody>
@@ -195,6 +203,10 @@ export default function ReportPage() {
                     <td>{li.qty.toLocaleString()}</td>
                     <td>{li.unit}</td>
                     <td>{formatUsd(Math.round(li.qty * li.unitCostCents))}</td>
+                    <td style={{ fontSize: "0.75rem", color: "var(--muted)" }}>{li.sourceDetail ?? li.source}</td>
+                    <td className={li.confidence === "low" ? "status-warn" : ""} style={{ fontSize: "0.8rem" }}>
+                      {li.confidence ?? "—"}
+                    </td>
                   </tr>
                 ))}
                 <tr>
@@ -204,6 +216,7 @@ export default function ReportPage() {
                   <td>
                     <strong>{formatUsd(estimate.totalCents)}</strong>
                   </td>
+                  <td colSpan={2} />
                 </tr>
               </tbody>
             </table>

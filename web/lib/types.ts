@@ -197,6 +197,14 @@ export interface EstimateLineItem {
   unit: string;
   unitCostCents: number;
   source: LineItemSource;
+  /**
+   * Pricing confidence (spec §22.3 launch gate). "high" is reserved for
+   * vendor quotes, which don't exist yet — model-measured quantities price
+   * at "medium", allowances at "low". Never overstated.
+   */
+  confidence: "high" | "medium" | "low";
+  /** Human-readable provenance: price book version, factors applied, selection. */
+  sourceDetail: string;
 }
 
 export interface Estimate {
@@ -207,6 +215,10 @@ export interface Estimate {
   highCents: number;
   regionCode: string;
   lineItems: EstimateLineItem[];
+  /** Which price book priced this estimate. */
+  priceBookVersion: string;
+  /** ISO timestamp when priced (spec BS-COST-003: pricing date shown). */
+  pricedAt: string;
 }
 
 /** Machine-readable action behind a VE suggestion; absent = advisory only. */

@@ -248,3 +248,36 @@ describe("freezeMilestone — immutable snapshots (BS-DES-006)", () => {
     if (first.ok) expect(freezeMilestone(first.pkg, "Again", 2).ok).toBe(false);
   });
 });
+
+describe("estimate provenance — the §22.3 launch gate", () => {
+  it("every line carries source, sourceDetail, and a never-overstated confidence", () => {
+    const [pkg] = runDesignLoop(brief, {
+      lotWidthFt: 60,
+      budgetCents: null,
+      regionCode: "US_WEST",
+      finishes: { flooring: "hardwood" },
+    });
+    expect(pkg.estimate.priceBookVersion).toBeTruthy();
+    expect(Number.isNaN(Date.parse(pkg.estimate.pricedAt))).toBe(false);
+    for (const li of pkg.estimate.lineItems) {
+      expect(li.unit).toBeTruthy();
+      expect(li.qty).toBeGreaterThan(0);
+      expect(li.sourceDetail).toContain(pkg.estimate.priceBookVersion);
+      // "high" is reserved for vendor quotes, which don't exist yet.
+      expect(["medium", "low"]).toContain(li.confidence);
+      expect(li.confidence).toBe(li.source === "takeoff" ? "medium" : "low");
+    }
+  });
+
+  it("provenance names the regional factor, and the style factor only where it applies", () => {
+    const [pkg] = runDesignLoop(
+      { ...brief, style: "victorian" },
+      { lotWidthFt: 60, budgetCents: null, regionCode: "US_WEST" },
+    );
+    const framing = pkg.estimate.lineItems.find((li) => li.category === "Framing");
+    const plumbing = pkg.estimate.lineItems.find((li) => li.category === "Plumbing");
+    expect(framing!.sourceDetail).toContain("US WEST ×1.22");
+    expect(framing!.sourceDetail).toContain("style ×");
+    expect(plumbing!.sourceDetail).not.toContain("style ×");
+  });
+});

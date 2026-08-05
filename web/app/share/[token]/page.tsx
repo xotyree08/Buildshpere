@@ -128,6 +128,10 @@ export default function SharedProjectPage() {
             </div>
 
             <h4>Estimate</h4>
+            <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0 0 0.35rem" }}>
+              Priced {estimate.pricedAt ? new Date(estimate.pricedAt).toLocaleDateString() : "—"} ·{" "}
+              {estimate.priceBookVersion ?? "concept estimate"}
+            </p>
             <table className="lineitems">
               <thead>
                 <tr>
@@ -135,15 +139,19 @@ export default function SharedProjectPage() {
                   <th>Qty</th>
                   <th>Unit</th>
                   <th>Cost</th>
+                  <th>Confidence</th>
                 </tr>
               </thead>
               <tbody>
                 {estimate.lineItems.map((li) => (
                   <tr key={li.id}>
-                    <td>{li.description}</td>
+                    <td title={li.sourceDetail}>{li.description}</td>
                     <td>{li.qty.toLocaleString()}</td>
                     <td>{li.unit}</td>
                     <td>{formatUsd(Math.round(li.qty * li.unitCostCents))}</td>
+                    <td className={li.confidence === "low" ? "status-warn" : ""} style={{ fontSize: "0.8rem" }}>
+                      {li.confidence ?? "—"}
+                    </td>
                   </tr>
                 ))}
                 <tr>
@@ -153,6 +161,7 @@ export default function SharedProjectPage() {
                   <td>
                     <strong>{formatUsd(estimate.totalCents)}</strong>
                   </td>
+                  <td />
                 </tr>
               </tbody>
             </table>
