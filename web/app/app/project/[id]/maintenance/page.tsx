@@ -47,7 +47,19 @@ export default function MaintenancePage() {
         <h1>Maintenance Plan</h1>
         <span style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
           <Link href={`/app/project/${project.id}`}>Back to project</Link>
-          <button className="btn" onClick={() => window.print()}>
+          <button
+            className="btn"
+            onClick={() => {
+              void import("@/lib/pdf/documents").then(({ generateMaintenancePdf }) =>
+                generateMaintenancePdf(project.name, plan).save(
+                  `${project.name.replace(/[^\w-]+/g, "-")}-maintenance-plan.pdf`,
+                ),
+              );
+            }}
+          >
+            Download PDF
+          </button>
+          <button className="btn secondary" onClick={() => window.print()}>
             Print
           </button>
         </span>
