@@ -21,6 +21,8 @@ export interface StoredProject {
   interiorScheme?: string;
   /** Change orders + draw payments recorded during construction. */
   construction?: import("./engine/buildtrack").ConstructionLog;
+  /** Ownership records: warranties, equipment registry, punch list. */
+  records?: import("./records").OwnershipRecords;
   /** User-entered jurisdiction setback rules; absent means generic defaults. */
   setbacks?: SetbackRules;
   /** Site constraint register (BS-LAND-004); absent means none recorded. */

@@ -824,6 +824,7 @@ export default function ProjectPage() {
           <Link href={`/app/project/${project.id}/schedule`}>Schedule</Link>
           <Link href={`/app/project/${project.id}/build`}>Build tracker</Link>
           <Link href={`/app/project/${project.id}/maintenance`}>Maintenance</Link>
+          <Link href={`/app/project/${project.id}/records`}>Records</Link>
           <Link href={`/app/project/${project.id}/interiors`}>Interiors</Link>
           <Link href={`/app/project/${project.id}/energy`}>Energy</Link>
           <Link href="/app">All projects</Link>
