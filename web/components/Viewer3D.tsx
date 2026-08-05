@@ -28,10 +28,13 @@ export function Viewer3D({
   model,
   style,
   finishes,
+  interiorScheme,
 }: {
   model: ParametricModel;
   style?: HomeStyle;
   finishes?: FinishSelections;
+  /** Interior scheme key; defaults to the style's natural scheme. */
+  interiorScheme?: string;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
@@ -43,7 +46,7 @@ export function Viewer3D({
     const mount = mountRef.current;
     if (!mount) return;
 
-    const scene3d = buildScene3D(model, style, finishes);
+    const scene3d = buildScene3D(model, style, finishes, interiorScheme);
     const palette = exteriorPalette(finishes);
     const { cx, cz, w, d, h } = scene3d.bounds;
     const radius = Math.max(w, d, h);
@@ -150,6 +153,7 @@ export function Viewer3D({
       }
       if (box.kind === "door") return plain(box.color, 0.6);
       if (box.kind === "trim") return plain(box.color, 0.55);
+      if (box.kind === "furn") return plain(box.color, 0.75);
       return plain(box.color);
     };
 
@@ -227,20 +231,13 @@ export function Viewer3D({
         scene.add(light);
       }
 
-      // Spawn in the living room (or the first habitable room) at eye height.
-      const ground0 = model.rooms.filter((r) => r.level === level && r.kind !== "garage" && r.kind !== "outdoor");
-      const spawn = ground0.find((r) => r.kind === "living") ?? ground0[0];
-      const [sx, sz, sw, sd] = spawn.rect;
       const eyeBase = level * WALL_HEIGHT_FT;
-      const pos = new THREE.Vector3(sx + sw / 2, eyeBase + EYE_FT, sz + sd / 2);
-      let yaw = 0; // facing +Z: toward the hallway side
-      let pitch = 0;
 
       // Solid obstacles at body height on this level: cut wall segments
-      // (doorway voids excluded by their y-span) and door leaves.
+      // (doorway voids excluded by their y-span), door leaves, furniture.
       const solids = scene3d.boxes.filter(
         (b) =>
-          (b.kind === "wall" || b.kind === "door") &&
+          (b.kind === "wall" || b.kind === "door" || b.kind === "furn") &&
           b.y < eyeBase + 6.0 &&
           b.y + b.h > eyeBase + 1.2,
       );
@@ -248,6 +245,24 @@ export function Viewer3D({
         solids.some(
           (b) => px > b.x - BODY_R && px < b.x + b.w + BODY_R && pz > b.z - BODY_R && pz < b.z + b.d + BODY_R,
         );
+
+      // Spawn in the living room (or the first habitable room) at the
+      // first clear spot — the room's center may hold furniture now.
+      const ground0 = model.rooms.filter((r) => r.level === level && r.kind !== "garage" && r.kind !== "outdoor");
+      const spawn = ground0.find((r) => r.kind === "living") ?? ground0[0];
+      const [sx, sz, sw, sd] = spawn.rect;
+      let spawnX = sx + sw / 2;
+      let spawnZ = sz + sd / 2;
+      for (const [ox, oz] of [[0, 0], [2.5, 0], [-2.5, 0], [0, 2.5], [0, -2.5], [3.5, 3.5], [-3.5, -3.5]]) {
+        if (!blocked(sx + sw / 2 + ox, sz + sd / 2 + oz)) {
+          spawnX = sx + sw / 2 + ox;
+          spawnZ = sz + sd / 2 + oz;
+          break;
+        }
+      }
+      const pos = new THREE.Vector3(spawnX, eyeBase + EYE_FT, spawnZ);
+      let yaw = 0; // facing +Z: toward the hallway side
+      let pitch = 0;
 
       const keys = new Set<string>();
       const touchMove = { forward: 0 };
@@ -391,7 +406,7 @@ export function Viewer3D({
       renderer.dispose();
       mount.removeChild(renderer.domElement);
     };
-  }, [model, style, finishes, mode, level]);
+  }, [model, style, finishes, interiorScheme, mode, level]);
 
   return (
     <div>

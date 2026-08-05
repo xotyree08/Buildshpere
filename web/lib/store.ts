@@ -17,6 +17,8 @@ export interface StoredProject {
   regionCode: string;
   /** Interior finish selections; absent on pre-catalog stored data. */
   finishes?: FinishSelections;
+  /** Interior design scheme key; absent means the style's natural scheme. */
+  interiorScheme?: string;
   /** User-entered jurisdiction setback rules; absent means generic defaults. */
   setbacks?: SetbackRules;
   /** Site constraint register (BS-LAND-004); absent means none recorded. */
