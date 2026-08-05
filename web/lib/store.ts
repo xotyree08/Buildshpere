@@ -19,6 +19,8 @@ export interface StoredProject {
   finishes?: FinishSelections;
   /** Interior design scheme key; absent means the style's natural scheme. */
   interiorScheme?: string;
+  /** Change orders + draw payments recorded during construction. */
+  construction?: import("./engine/buildtrack").ConstructionLog;
   /** User-entered jurisdiction setback rules; absent means generic defaults. */
   setbacks?: SetbackRules;
   /** Site constraint register (BS-LAND-004); absent means none recorded. */
