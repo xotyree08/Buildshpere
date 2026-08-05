@@ -65,3 +65,20 @@ a health endpoint that names the exact fix per integration, and claims-drift
 tests. Phase-gated rules (server-only entitlements, auth checklist, store
 submission checklist, pre-launch audits) bind the phases that introduce them.
 New code that contradicts a rule needs this ADR amended first.
+
+## ADR-012: Server store & auth — scrypt, hashed session tokens, jsonb payload parity — accepted
+
+Accounts and the server store activate when DATABASE_URL is set; without it
+every route degrades to 503 with the exact fix and the app keeps its
+localStorage behavior (ADR-009). Choices, per the lessons register:
+email+password only (L7 — no OTP flows), scrypt with per-user salt via node
+crypto (no dependency), session cookies backed by SHA-256-hashed random
+tokens so a leaked database yields no usable cookie, ownership enforced in
+every SQL WHERE (L1 discipline ahead of entitlements), and writes that
+report failure (L2). Projects persist as a jsonb payload mirroring the
+client's StoredProject shape — the mechanical swap ADR-009 promised; the
+full relational breakdown arrives with Phase 2 professional workflows.
+Email confirmation requires an email provider and is a deploy-time gate
+(L7) tracked in LESSONS_LEARNED — the schema carries email_confirmed_at
+from day one. Verified against an in-memory Postgres engine (pg-mem) in CI;
+first deploy against a real host re-runs the same suite via DATABASE_URL.
