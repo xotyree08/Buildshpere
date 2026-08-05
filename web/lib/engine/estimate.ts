@@ -22,6 +22,9 @@ import {
   FLOORING,
   LIGHTING,
   PAINT,
+  ROOFING,
+  SIDING,
+  WINDOWS,
   pick,
   type FinishSelections,
 } from "../catalog/materials";
@@ -101,9 +104,6 @@ const PRICE_BOOK: BookEntry[] = [
   { category: "Foundation", description: "Slab & footings", unit: "sqft", unitCostCents: 1400, qty: (q) => (q.livableSqft / q.levels) + q.garageSqft, source: "takeoff" },
   { category: "Framing", description: "Wall framing", unit: "lf", unitCostCents: 12500, qty: (q) => q.wallLf, source: "takeoff" },
   { category: "Framing", description: "Floor/roof structure", unit: "sqft", unitCostCents: 1800, qty: (q) => q.livableSqft + q.garageSqft, source: "takeoff" },
-  { category: "Roofing", description: "Roof system", unit: "sqft", unitCostCents: 900, qty: (q) => (q.livableSqft / q.levels) * 1.15 + q.garageSqft, source: "takeoff" },
-  { category: "Exterior", description: "Siding & weatherproofing", unit: "sqft", unitCostCents: 1100, qty: (q) => q.wallLf * 9, source: "takeoff" },
-  { category: "Windows & Doors", description: "Windows", unit: "ea", unitCostCents: 85000, qty: (q) => q.windows, source: "takeoff" },
   { category: "Windows & Doors", description: "Doors", unit: "ea", unitCostCents: 35000, qty: (q) => q.doors, source: "takeoff" },
   { category: "Plumbing", description: "Bath rough-in & fixtures", unit: "bath", unitCostCents: 1250000, qty: (q) => q.baths, source: "takeoff" },
   { category: "Electrical", description: "Service, wiring, fixtures", unit: "sqft", unitCostCents: 950, qty: (q) => q.livableSqft, source: "takeoff" },
@@ -120,8 +120,14 @@ function finishBook(finishes: EstimateFinishes): BookEntry[] {
   const appliances = pick(APPLIANCES, finishes.appliances, DEFAULT_FINISHES.appliances);
   const lighting = pick(LIGHTING, finishes.lighting, DEFAULT_FINISHES.lighting);
   const paint = pick(PAINT, finishes.paint, DEFAULT_FINISHES.paint);
+  const siding = pick(SIDING, finishes.siding, DEFAULT_FINISHES.siding);
+  const roofing = pick(ROOFING, finishes.roofing, DEFAULT_FINISHES.roofing);
+  const windows = pick(WINDOWS, finishes.windows, DEFAULT_FINISHES.windows);
 
   const entries: BookEntry[] = [
+    { category: "Roofing", description: `Roofing — ${roofing.label}`, unit: "sqft", unitCostCents: roofing.costPerSqftCents, qty: (q) => (q.livableSqft / q.levels) * 1.15 + q.garageSqft, source: "takeoff" },
+    { category: "Exterior", description: `Siding — ${siding.label}`, unit: "sqft", unitCostCents: siding.costPerSqftCents, qty: (q) => q.wallLf * 9, source: "takeoff" },
+    { category: "Windows & Doors", description: `Windows — ${windows.label}`, unit: "ea", unitCostCents: windows.costCents, qty: (q) => q.windows, source: "takeoff" },
     { category: "Flooring", description: flooring.label, unit: "sqft", unitCostCents: flooring.costPerSqftCents, qty: (q) => q.livableSqft, source: "allowance" },
     { category: "Kitchen", description: `Cabinets — ${cabinets.label}`, unit: "ea", unitCostCents: cabinets.costCents, qty: (q) => q.kitchens, source: "allowance" },
     { category: "Kitchen", description: `Countertops — ${counters.label}`, unit: "ea", unitCostCents: counters.costCents, qty: (q) => q.kitchens, source: "allowance" },
