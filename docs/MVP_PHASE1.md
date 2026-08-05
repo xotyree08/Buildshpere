@@ -1,5 +1,15 @@
 # BuildSphere MVP — Phase 1 Scope
 
+> **Status: shipped.** Everything in scope below is built and merged, plus
+> beyond-scope items that arrived along the way: the 28-style catalog with
+> style-shaped roofs/porches/massing, interior + exterior material catalogs
+> with live repricing, inspiration-photo analysis, conversational revisions,
+> accounts with cross-device sync (server verified against Postgres 16), the
+> printable Design Report, and the lessons-register hardening (ADR-011).
+> Rendering shipped as deterministic 2D plans + 3D massing; the photoreal
+> pipeline remains a ModelSphere Phase 1.x upgrade. This document is kept as
+> the original scope contract.
+
 Phase 1 from the [Platform Overview](PLATFORM_OVERVIEW.md): **AI Design · Floor Plans · 3D Rendering · Walkthroughs · Budget · Material Takeoff.**
 
 The MVP proves one loop: *a homeowner describes the home they want, sees credible concepts with honest prices, and iterates until they love one.* Everything else (professionals, permits, construction) hangs off that loop in later phases.

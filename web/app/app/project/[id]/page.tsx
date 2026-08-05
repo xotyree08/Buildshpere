@@ -330,7 +330,10 @@ export default function ProjectPage() {
     <main>
       <div className="topbar">
         <h1>{project.name}</h1>
-        <Link href="/app">All projects</Link>
+        <span style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+          <Link href={`/app/project/${project.id}/report`}>Design report</Link>
+          <Link href="/app">All projects</Link>
+        </span>
       </div>
       <p style={{ color: "var(--muted)" }}>
         Budget {project.budgetCents != null ? formatUsd(project.budgetCents) : "—"} · lot{" "}

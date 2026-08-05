@@ -27,6 +27,12 @@ describe("claims stay wired to the UI", () => {
     expect(page).toContain("ESTIMATE_RANGE_CLAIM");
   });
 
+  it("the design report carries the same canonical claims", () => {
+    const page = source("app/app/project/[id]/report/page.tsx");
+    expect(page).toContain("CONCEPT_DISCLAIMER");
+    expect(page).toContain("ESTIMATE_RANGE_CLAIM");
+  });
+
   it("the landing page shows every sphere with its roadmap phase — nothing unshipped presented as live", () => {
     const page = source("app/page.tsx");
     expect(page).toContain("Phase {s.phase}");
