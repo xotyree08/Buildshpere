@@ -119,3 +119,45 @@ describe("custom setback rules in readiness wording", () => {
     expect(sitePlan?.detail).not.toContain("generic");
   });
 });
+
+describe("site constraint register in readiness", () => {
+  const blocking = (note: string, status: "open" | "resolved") => ({
+    id: `c-${note}`,
+    kind: "easement" as const,
+    severity: "blocking" as const,
+    note,
+    status,
+    source: "user-entered" as const,
+  });
+
+  it("open blocking constraints block submission by name; resolved ones don't", () => {
+    const blocked = buildPermitReadiness(
+      baseInput({ reviewStatus: "approved", constraints: [blocking("power line easement", "open")] }),
+    );
+    const item = blocked.items.find((i) => i.key === "site_constraints");
+    expect(item?.status).toBe("action_needed");
+    expect(item?.detail).toContain("power line easement");
+    expect(blocked.submittable).toBe(false);
+
+    const cleared = buildPermitReadiness(
+      baseInput({ reviewStatus: "approved", constraints: [blocking("power line easement", "resolved")] }),
+    );
+    expect(cleared.items.find((i) => i.key === "site_constraints")?.status).toBe("ready");
+    expect(cleared.submittable).toBe(true);
+  });
+
+  it("advisory constraints stay honest but never block", () => {
+    const readiness = buildPermitReadiness(
+      baseInput({
+        reviewStatus: "approved",
+        constraints: [
+          { id: "c1", kind: "hoa", severity: "caution", note: "HOA design review required", status: "open", source: "user-entered" },
+        ],
+      }),
+    );
+    const item = readiness.items.find((i) => i.key === "site_constraints");
+    expect(item?.status).toBe("ready");
+    expect(item?.detail).toContain("1 advisory still open");
+    expect(readiness.submittable).toBe(true);
+  });
+});

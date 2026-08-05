@@ -6,7 +6,7 @@
  * structural sheets) are labeled "future" — never pretended ready.
  */
 
-import type { DesignCheckResult } from "../types";
+import type { DesignCheckResult, SiteConstraint } from "../types";
 import { isGenericSetbacks, type SitePlan } from "./site";
 
 export type ReadinessStatus = "ready" | "action_needed" | "pending_professional" | "future";
@@ -36,6 +36,8 @@ export interface ReadinessInput {
   /** Latest professional-review status for the project, null if none. */
   reviewStatus: "requested" | "claimed" | "approved" | "changes_requested" | null;
   reviewNote?: string | null;
+  /** The user-entered site constraint register (BS-LAND-004). */
+  constraints?: SiteConstraint[];
 }
 
 export function buildPermitReadiness(input: ReadinessInput): PermitReadiness {
@@ -70,6 +72,30 @@ export function buildPermitReadiness(input: ReadinessInput): PermitReadiness {
       label: "Site plan & setbacks",
       status: "action_needed",
       detail: input.site.violations.join(" "),
+    });
+  }
+
+  const constraints = input.constraints ?? [];
+  const openBlocking = constraints.filter((c) => c.status === "open" && c.severity === "blocking");
+  const openOther = constraints.filter((c) => c.status === "open" && c.severity !== "blocking");
+  if (openBlocking.length > 0) {
+    items.push({
+      key: "site_constraints",
+      label: "Site constraints",
+      status: "action_needed",
+      detail: `Open blocking constraint${openBlocking.length === 1 ? "" : "s"}: ${openBlocking
+        .map((c) => `${c.kind} — ${c.note}`)
+        .join("; ")}. Resolve before submitting.`,
+    });
+  } else {
+    items.push({
+      key: "site_constraints",
+      label: "Site constraints",
+      status: "ready",
+      detail:
+        constraints.length === 0
+          ? "No constraints recorded (user-entered register — county data arrives with LandSphere)."
+          : `${constraints.length} recorded, none blocking${openOther.length > 0 ? ` (${openOther.length} advisory still open)` : ""}.`,
     });
   }
 

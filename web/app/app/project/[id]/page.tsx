@@ -23,6 +23,7 @@ import {
   rollbackConcept,
   type ConceptPackage,
 } from "@/lib/engine/loop";
+import { ConstraintRegister } from "@/components/ConstraintRegister";
 import { SetbacksEditor } from "@/components/SetbacksEditor";
 import { SCENARIOS } from "@/lib/catalog/scenarios";
 import { compareConcepts } from "@/lib/engine/compare";
@@ -32,7 +33,7 @@ import { exportFilename, exportProject } from "@/lib/portability";
 import { deriveDesignStatus } from "@/lib/status";
 import { accountEmail, formatUsd, loadProject, saveProject, type StoredProject } from "@/lib/store";
 import { pushProject } from "@/lib/sync";
-import type { DesignCheckResult, ParametricModel, ValueEngineeringSuggestion } from "@/lib/types";
+import type { DesignCheckResult, ParametricModel, SiteConstraint, ValueEngineeringSuggestion } from "@/lib/types";
 
 const READINESS_CLASS: Record<string, string> = {
   ready: "status-pass",
@@ -47,6 +48,7 @@ function ReadinessBlock({
   lotWidthFt,
   lotDepthFt,
   setbacks,
+  constraints,
   sqft,
   review,
 }: {
@@ -55,6 +57,7 @@ function ReadinessBlock({
   lotWidthFt: number;
   lotDepthFt: number;
   setbacks: SetbackRules;
+  constraints?: SiteConstraint[];
   sqft: number;
   review: Review | null;
 }) {
@@ -65,6 +68,7 @@ function ReadinessBlock({
     site: buildSitePlan(model, lotWidthFt, lotDepthFt, setbacks),
     reviewStatus: review?.status ?? null,
     reviewNote: review?.note ?? null,
+    constraints,
   });
 
   return (
@@ -121,6 +125,7 @@ function ConceptCard({
   expanded,
   onToggle,
   setbacks,
+  constraints,
   finishes,
   onRevise,
   onApplyVe,
@@ -134,6 +139,7 @@ function ConceptCard({
   lotWidthFt: number;
   lotDepthFt: number;
   setbacks: SetbackRules;
+  constraints?: SiteConstraint[];
   finishes?: FinishSelections;
   expanded: boolean;
   onToggle: () => void;
@@ -421,6 +427,7 @@ function ConceptCard({
             lotWidthFt={lotWidthFt}
             lotDepthFt={lotDepthFt}
             setbacks={setbacks}
+            constraints={constraints}
             sqft={sqft}
             review={review}
           />
@@ -666,6 +673,18 @@ export default function ProjectPage() {
     const frozen = freezeMilestone(current.packages[idx], label, Date.now());
     if (!frozen.ok) return frozen.error;
     current.packages[idx] = frozen.pkg;
+    const saved = saveProject(current);
+    if (!saved.ok) return saved.error;
+    setStorageNotice(saved.warning ?? null);
+    setEntry(loadProject(params.id));
+    if (accountEmail()) void pushProject(current).then((r) => !r.ok && setStorageNotice(r.error));
+    return null;
+  }
+
+  async function handleConstraintsChange(next: SiteConstraint[]): Promise<string | null> {
+    const current = loadProject(params.id);
+    if (!current) return "Project disappeared from local storage.";
+    current.constraints = next;
     const saved = saveProject(current);
     if (!saved.ok) return saved.error;
     setStorageNotice(saved.warning ?? null);
@@ -946,6 +965,8 @@ export default function ProjectPage() {
         </div>
       </div>
 
+      <ConstraintRegister constraints={entry.constraints ?? []} onChange={handleConstraintsChange} />
+
       <ReviewSection
         projectId={project.id}
         projectName={project.name}
@@ -962,6 +983,7 @@ export default function ProjectPage() {
           lotWidthFt={project.lotWidthFt ?? 60}
           lotDepthFt={project.lotDepthFt ?? 120}
           setbacks={sanitizeSetbacks(entry.setbacks)}
+          constraints={entry.constraints}
           finishes={entry.finishes}
           expanded={expanded === pkg.concept.id}
           onToggle={() => setExpanded(expanded === pkg.concept.id ? null : pkg.concept.id)}

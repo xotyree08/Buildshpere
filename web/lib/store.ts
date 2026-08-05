@@ -4,7 +4,7 @@
  * a server store is mechanical.
  */
 
-import type { DesignBrief, Project } from "./types";
+import type { DesignBrief, Project, SiteConstraint } from "./types";
 import type { ConceptPackage } from "./engine/loop";
 import type { FinishSelections } from "./catalog/materials";
 import type { InspirationAnalysis } from "./engine/inspiration";
@@ -19,6 +19,8 @@ export interface StoredProject {
   finishes?: FinishSelections;
   /** User-entered jurisdiction setback rules; absent means generic defaults. */
   setbacks?: SetbackRules;
+  /** Site constraint register (BS-LAND-004); absent means none recorded. */
+  constraints?: SiteConstraint[];
   /** Inspiration photo + detected attributes; absent when none uploaded. */
   inspiration?: {
     photoDataUrl: string;
