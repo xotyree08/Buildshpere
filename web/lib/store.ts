@@ -8,6 +8,7 @@ import type { DesignBrief, Project } from "./types";
 import type { ConceptPackage } from "./engine/loop";
 import type { FinishSelections } from "./catalog/materials";
 import type { InspirationAnalysis } from "./engine/inspiration";
+import type { SetbackRules } from "./engine/site";
 
 export interface StoredProject {
   project: Project;
@@ -16,6 +17,8 @@ export interface StoredProject {
   regionCode: string;
   /** Interior finish selections; absent on pre-catalog stored data. */
   finishes?: FinishSelections;
+  /** User-entered jurisdiction setback rules; absent means generic defaults. */
+  setbacks?: SetbackRules;
   /** Inspiration photo + detected attributes; absent when none uploaded. */
   inspiration?: {
     photoDataUrl: string;

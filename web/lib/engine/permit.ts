@@ -7,7 +7,7 @@
  */
 
 import type { DesignCheckResult } from "../types";
-import type { SitePlan } from "./site";
+import { isGenericSetbacks, type SitePlan } from "./site";
 
 export type ReadinessStatus = "ready" | "action_needed" | "pending_professional" | "future";
 
@@ -60,7 +60,9 @@ export function buildPermitReadiness(input: ReadinessInput): PermitReadiness {
       key: "site_plan",
       label: "Site plan & setbacks",
       status: "ready",
-      detail: `Fits the lot at ${input.site.coverage.pct}% coverage (generic setbacks — county rules arrive with LandSphere).`,
+      detail: isGenericSetbacks(input.site.rules)
+        ? `Fits the lot at ${input.site.coverage.pct}% coverage (generic setbacks — county rules arrive with LandSphere).`
+        : `Fits the lot at ${input.site.coverage.pct}% coverage under the setback rules you entered — verify them against your jurisdiction's published code.`,
     });
   } else {
     items.push({

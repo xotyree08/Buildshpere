@@ -11,6 +11,7 @@ import { SitePlanView } from "@/components/SitePlanView";
 import { EXTERIOR_CATEGORIES, FINISH_CATEGORIES, DEFAULT_FINISHES } from "@/lib/catalog/materials";
 import { styleInfo } from "@/lib/catalog/styles";
 import { CONCEPT_DISCLAIMER, ESTIMATE_RANGE_CLAIM } from "@/lib/claims";
+import { sanitizeSetbacks } from "@/lib/engine/site";
 import { formatUsd, loadProject, type StoredProject } from "@/lib/store";
 
 /**
@@ -159,6 +160,7 @@ export default function ReportPage() {
                   model={model}
                   lotWidthFt={project.lotWidthFt ?? 60}
                   lotDepthFt={project.lotDepthFt ?? 120}
+                  rules={sanitizeSetbacks(entry.setbacks)}
                 />
               </div>
             </div>

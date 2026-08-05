@@ -21,8 +21,9 @@ import {
   rollbackConcept,
   type ConceptPackage,
 } from "@/lib/engine/loop";
+import { SetbacksEditor } from "@/components/SetbacksEditor";
 import { buildPermitReadiness } from "@/lib/engine/permit";
-import { buildSitePlan } from "@/lib/engine/site";
+import { buildSitePlan, sanitizeSetbacks, type SetbackRules } from "@/lib/engine/site";
 import { exportFilename, exportProject } from "@/lib/portability";
 import { accountEmail, formatUsd, loadProject, saveProject, type StoredProject } from "@/lib/store";
 import { pushProject } from "@/lib/sync";
@@ -40,6 +41,7 @@ function ReadinessBlock({
   checkResults,
   lotWidthFt,
   lotDepthFt,
+  setbacks,
   sqft,
   review,
 }: {
@@ -47,6 +49,7 @@ function ReadinessBlock({
   checkResults: DesignCheckResult[];
   lotWidthFt: number;
   lotDepthFt: number;
+  setbacks: SetbackRules;
   sqft: number;
   review: Review | null;
 }) {
@@ -54,7 +57,7 @@ function ReadinessBlock({
     levels: model.levels,
     sqft,
     checkResults,
-    site: buildSitePlan(model, lotWidthFt, lotDepthFt),
+    site: buildSitePlan(model, lotWidthFt, lotDepthFt, setbacks),
     reviewStatus: review?.status ?? null,
     reviewNote: review?.note ?? null,
   });
@@ -112,20 +115,24 @@ function ConceptCard({
   lotDepthFt,
   expanded,
   onToggle,
+  setbacks,
   onRevise,
   onApplyVe,
   onRollback,
+  onSetbacksChange,
   review,
 }: {
   pkg: ConceptPackage;
   budgetCents: number | null;
   lotWidthFt: number;
   lotDepthFt: number;
+  setbacks: SetbackRules;
   expanded: boolean;
   onToggle: () => void;
   onRevise: (text: string) => Promise<string | null>;
   onApplyVe: (suggestion: ValueEngineeringSuggestion) => Promise<string | null>;
   onRollback: (keep: number) => Promise<string | null>;
+  onSetbacksChange: (rules: SetbackRules | null) => Promise<string | null>;
   review: Review | null;
 }) {
   const [request, setRequest] = useState("");
@@ -250,7 +257,8 @@ function ConceptCard({
         </div>
       ) : view === "site" ? (
         <div style={{ margin: "0.75rem 0", maxWidth: 420 }}>
-          <SitePlanView model={model} lotWidthFt={lotWidthFt} lotDepthFt={lotDepthFt} />
+          <SitePlanView model={model} lotWidthFt={lotWidthFt} lotDepthFt={lotDepthFt} rules={setbacks} />
+          <SetbacksEditor rules={setbacks} onSave={onSetbacksChange} />
         </div>
       ) : (
         <div style={{ margin: "0.75rem 0" }}>
@@ -374,6 +382,7 @@ function ConceptCard({
             checkResults={checkResults}
             lotWidthFt={lotWidthFt}
             lotDepthFt={lotDepthFt}
+            setbacks={setbacks}
             sqft={sqft}
             review={review}
           />
@@ -598,6 +607,19 @@ export default function ProjectPage() {
     return null;
   }
 
+  async function handleSetbacksChange(rules: SetbackRules | null): Promise<string | null> {
+    const current = loadProject(params.id);
+    if (!current) return "Project disappeared from local storage.";
+    if (rules) current.setbacks = sanitizeSetbacks(rules);
+    else delete current.setbacks;
+    const saved = saveProject(current);
+    if (!saved.ok) return saved.error;
+    setStorageNotice(saved.warning ?? null);
+    setEntry(loadProject(params.id));
+    if (accountEmail()) void pushProject(current).then((r) => !r.ok && setStorageNotice(r.error));
+    return null;
+  }
+
   async function handleShare() {
     if (!signedIn) {
       setStorageNotice("Sign in (Account) to create a share link — the link serves your synced copy.");
@@ -810,11 +832,13 @@ export default function ProjectPage() {
           budgetCents={project.budgetCents}
           lotWidthFt={project.lotWidthFt ?? 60}
           lotDepthFt={project.lotDepthFt ?? 120}
+          setbacks={sanitizeSetbacks(entry.setbacks)}
           expanded={expanded === pkg.concept.id}
           onToggle={() => setExpanded(expanded === pkg.concept.id ? null : pkg.concept.id)}
           onRevise={(text) => handleRevise(pkg.concept.id, text)}
           onApplyVe={(suggestion) => handleApplyVe(pkg.concept.id, suggestion)}
           onRollback={(keep) => handleRollback(pkg.concept.id, keep)}
+          onSetbacksChange={handleSetbacksChange}
           review={review}
         />
       ))}
