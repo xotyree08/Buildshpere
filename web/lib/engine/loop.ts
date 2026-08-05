@@ -85,6 +85,26 @@ export function repriceConceptPackage(
   };
 }
 
+export type RollbackResult = { ok: true; pkg: ConceptPackage } | { ok: false; error: string };
+
+/**
+ * Return a concept to an earlier state by discarding later revisions.
+ * `keep` is how many revisions survive (0 = back to the original concept).
+ * Pure truncation: every retained state was already checked and priced when
+ * it was made, so nothing is recomputed and ids stay consistent for the
+ * next revision (`applyOpsToConceptPackage` numbers from history length).
+ */
+export function rollbackConcept(pkg: ConceptPackage, keep: number): RollbackResult {
+  const history = pkg.revisions ?? [];
+  if (!Number.isInteger(keep) || keep < 0 || keep >= history.length) {
+    return {
+      ok: false,
+      error: `Nothing to roll back — this concept has ${history.length} revision(s).`,
+    };
+  }
+  return { ok: true, pkg: { ...pkg, revisions: history.slice(0, keep) } };
+}
+
 export interface ReviseOutcome {
   pkg: RevisionPackage | null;
   /** Clauses the parser could not turn into ops. */
