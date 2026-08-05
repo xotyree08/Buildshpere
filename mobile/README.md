@@ -9,10 +9,14 @@ Flutter homeowner app ([ADR-005](../docs/DECISIONS.md): ships after the web MVP 
 > Active, products on both stores, purchase surface rendering on a physical
 > device — in that order.
 
-This is the app shell only — `lib/main.dart` plus the shared sphere catalog. Platform folders (`android/`, `ios/`) are not committed yet; generate them locally:
+This is the app shell only — `lib/main.dart` plus the shared sphere catalog,
+**verified with the real toolchain**: `flutter analyze` clean and the widget
+tests in `test/` green on Flutter stable (3.32). Platform folders
+(`android/`, `ios/`) are not committed yet; generate them locally:
 
 ```bash
 flutter create . --platforms=ios,android --project-name buildsphere_mobile
+flutter test && flutter analyze
 flutter run
 ```
 
