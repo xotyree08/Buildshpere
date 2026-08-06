@@ -123,6 +123,17 @@ create table if not exists password_resets (
   used_at timestamp
 );
 create index if not exists password_resets_user on password_resets(user_id);
+
+create table if not exists error_reports (
+  id text primary key,
+  kind text not null,
+  message text not null,
+  stack text,
+  url text,
+  user_agent text,
+  created_at timestamp not null
+);
+create index if not exists error_reports_created on error_reports(created_at);
 `;
 
 /** Minimal query surface both pg.Pool and the test engine satisfy. */
@@ -225,6 +236,17 @@ export async function ensureSchema(db: Db): Promise<void> {
   );
   if (resets.rows.length === 0) {
     const start = SCHEMA_SQL.indexOf("create table if not exists password_resets");
+    const end = SCHEMA_SQL.indexOf("create table if not exists error_reports");
+    for (const statement of SCHEMA_SQL.slice(start, end).split(";")) {
+      const sql = statement.trim();
+      if (sql) await db.query(sql);
+    }
+  }
+  const errors = await db.query(
+    "select 1 from information_schema.tables where table_name = 'error_reports'",
+  );
+  if (errors.rows.length === 0) {
+    const start = SCHEMA_SQL.indexOf("create table if not exists error_reports");
     for (const statement of SCHEMA_SQL.slice(start).split(";")) {
       const sql = statement.trim();
       if (sql) await db.query(sql);
