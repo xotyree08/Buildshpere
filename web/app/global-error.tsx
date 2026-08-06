@@ -20,7 +20,9 @@ export default function GlobalError({
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        kind: "boundary",
         message: error.message?.slice(0, 500) ?? "unknown",
+        stack: error.stack ?? null,
         digest: error.digest ?? null,
         url: typeof window !== "undefined" ? window.location.pathname : null,
       }),
