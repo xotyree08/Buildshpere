@@ -7,6 +7,7 @@ import { ensureSchema, type Db } from "../db";
 import { listEntitlements } from "./index";
 import {
   createCheckoutSession,
+  createPortalSession,
   handleStripeEvent,
   PLAN_PRODUCTS,
   STRIPE_UNCONFIGURED,
@@ -86,6 +87,37 @@ describe("stripe seam (L1: webhook is the only write path)", () => {
     expect(verifyStripeSignature(payload, sign(payload, "whsec_test", stale), "whsec_test", now)).toBe(false);
     expect(verifyStripeSignature(payload, "not-a-header", "whsec_test", now)).toBe(false);
     expect(verifyStripeSignature(payload, null, "whsec_test", now)).toBe(false);
+  });
+
+  it("billing portal: opens for the account's own customer, honest when none exists", async () => {
+    const calls: string[] = [];
+    const withCustomer = await createPortalSession(
+      ENV,
+      async (url, init) => {
+        calls.push(url);
+        if (url.includes("/customers?")) {
+          return { status: 200, json: async () => ({ data: [{ id: "cus_1" }] }) };
+        }
+        expect(String(init.body)).toContain("customer=cus_1");
+        return { status: 200, json: async () => ({ url: "https://billing.stripe.com/p/x" }) };
+      },
+      { email: "buyer@example.com", returnUrl: "r" },
+    );
+    expect(withCustomer).toEqual({ ok: true, url: "https://billing.stripe.com/p/x" });
+    expect(calls[0]).toContain(encodeURIComponent("buyer@example.com"));
+
+    const noCustomer = await createPortalSession(
+      ENV,
+      async () => ({ status: 200, json: async () => ({ data: [] }) }),
+      { email: "nobody@example.com", returnUrl: "r" },
+    );
+    expect(noCustomer).toEqual({ ok: false, error: "No web subscription is on file for this account's email." });
+
+    const unconfigured = await createPortalSession({}, async () => ({ status: 200, json: async () => ({}) }), {
+      email: "a@b.co",
+      returnUrl: "r",
+    });
+    expect(unconfigured).toEqual({ ok: false, error: STRIPE_UNCONFIGURED });
   });
 
   it("a completed checkout grants exactly the metadata product to the referenced user", async () => {

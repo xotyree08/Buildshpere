@@ -6,6 +6,7 @@ import { FloorPlan } from "@/components/FloorPlan";
 import { SitePlanView } from "@/components/SitePlanView";
 import { ESTIMATE_RANGE_CLAIM } from "@/lib/claims";
 import { generateConcepts } from "@/lib/engine/generate";
+import { buildableDepthFt, buildableWidthFt } from "@/lib/engine/site";
 import { SPHERES } from "@/lib/spheres";
 import type { DesignBrief } from "@/lib/types";
 
@@ -37,7 +38,7 @@ const SAMPLE_BRIEF: DesignBrief = {
 };
 
 export default function Home() {
-  const sample = generateConcepts(SAMPLE_BRIEF, 90)[0];
+  const sample = generateConcepts(SAMPLE_BRIEF, buildableWidthFt(90), buildableDepthFt(140))[0];
   const model = sample.model;
 
   return (

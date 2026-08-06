@@ -56,8 +56,12 @@ export default function SamplePage() {
       router.replace(`/app/project/${SAMPLE_ID}`);
       return;
     }
+    // An estate lot: a 4-bed single-story with an outdoor kitchen needs
+    // real ground. The showcase must fit its own site plan — a sample
+    // wearing setback violations sells nothing.
     const packages = runDesignLoop(SAMPLE_BRIEF, {
-      lotWidthFt: 70,
+      lotWidthFt: 90,
+      lotDepthFt: 150,
       budgetCents: 685_000_00,
       regionCode: "US_NATIONAL",
       finishes: SAMPLE_FINISHES,
@@ -68,8 +72,8 @@ export default function SamplePage() {
         ownerId: "local",
         name: "The Sample Home",
         addressText: null,
-        lotWidthFt: 70,
-        lotDepthFt: 130,
+        lotWidthFt: 90,
+        lotDepthFt: 150,
         budgetCents: 685_000_00,
         status: "designing",
       },

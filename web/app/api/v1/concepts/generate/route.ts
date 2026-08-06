@@ -7,6 +7,7 @@ import type { DesignBrief } from "@/lib/types";
 interface GenerateRequest {
   brief: DesignBrief;
   lotWidthFt?: number | null;
+  lotDepthFt?: number | null;
   budgetCents?: number | null;
   regionCode?: string;
   finishes?: FinishSelections;
@@ -32,6 +33,7 @@ export async function POST(req: Request) {
 
   const packages = runDesignLoop(body.brief, {
     lotWidthFt: body.lotWidthFt ?? null,
+    lotDepthFt: body.lotDepthFt ?? null,
     budgetCents: body.budgetCents ?? null,
     regionCode: body.regionCode,
     finishes: body.finishes,

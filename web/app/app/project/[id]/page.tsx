@@ -929,7 +929,12 @@ export default function ProjectPage() {
                       </td>
                       <td>{r.levels}</td>
                       <td>{r.healthScore}</td>
-                      <td className={r.fitsLot ? "status-pass" : "status-fail"}>{r.fitsLot ? "fits" : "check"}</td>
+                      <td
+                        className={r.fitsLot ? "status-pass" : "status-warn"}
+                        title={r.fitNotes.join(" ")}
+                      >
+                        {r.fitsLot ? "fits" : "needs a larger lot"}
+                      </td>
                       <td>{formatUsd(r.costPerSqftCents)}</td>
                       <td>
                         <strong>{formatUsd(r.currentTotalCents)}</strong>

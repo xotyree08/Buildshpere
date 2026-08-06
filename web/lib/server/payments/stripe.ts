@@ -82,6 +82,44 @@ export async function createCheckoutSession(
 }
 
 /**
+ * Open Stripe's Billing Portal for the user's subscription — the manage/
+ * cancel path the Terms promise. The customer is looked up by the
+ * account's email, so a session can never open someone else's billing.
+ */
+export async function createPortalSession(
+  env: StripeEnv,
+  fetchFn: FetchLike,
+  opts: { email: string; returnUrl: string },
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  if (!env.STRIPE_SECRET_KEY) return { ok: false, error: STRIPE_UNCONFIGURED };
+  const auth = { authorization: `Bearer ${env.STRIPE_SECRET_KEY}` };
+  try {
+    const lookup = await fetchFn(
+      `https://api.stripe.com/v1/customers?email=${encodeURIComponent(opts.email)}&limit=1`,
+      { method: "GET", headers: auth },
+    );
+    const found = (await lookup.json()) as { data?: { id?: string }[] };
+    const customer = found.data?.[0]?.id;
+    if (lookup.status !== 200 || !customer) {
+      return { ok: false, error: "No web subscription is on file for this account's email." };
+    }
+    const body = new URLSearchParams({ customer, return_url: opts.returnUrl });
+    const res = await fetchFn("https://api.stripe.com/v1/billing_portal/sessions", {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+    const data = (await res.json()) as { url?: string; error?: { message?: string } };
+    if (res.status !== 200 || !data.url) {
+      return { ok: false, error: data.error?.message ?? `Stripe refused the portal session (HTTP ${res.status}).` };
+    }
+    return { ok: true, url: data.url };
+  } catch {
+    return { ok: false, error: "Could not reach Stripe — try again in a moment." };
+  }
+}
+
+/**
  * Verify a Stripe-Signature header (t=timestamp,v1=hmac of "t.payload").
  * Rejects stale timestamps (replay) and non-matching signatures, in
  * constant time.

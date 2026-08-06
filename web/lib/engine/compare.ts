@@ -21,6 +21,8 @@ export interface ConceptComparison {
   levels: number;
   healthScore: number;
   fitsLot: boolean;
+  /** Why it doesn't fit, when it doesn't — shown to the customer verbatim. */
+  fitNotes: string[];
   /** The customer's actual selections — the stored estimate. */
   currentTotalCents: number;
   costPerSqftCents: number;
@@ -68,6 +70,7 @@ export function compareConcepts(
       levels: model.levels,
       healthScore,
       fitsLot: site.fits,
+      fitNotes: site.violations,
       currentTotalCents: estimate.totalCents,
       costPerSqftCents: sqft > 0 ? Math.round(estimate.totalCents / sqft) : 0,
       scenarioTotals,
