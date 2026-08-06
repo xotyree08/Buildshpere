@@ -51,7 +51,8 @@ const SECTIONS: [string, string[]][] = [
   [
     "Subscriptions",
     [
-      "Core design features are free during the platform's early phase. BuildSphere Plus, when purchased through the Apple App Store or Google Play, renews and cancels through your store account and is governed additionally by that store's terms. Prices are shown before any charge; cancellation stops future renewals and leaves already-paid periods active.",
+      "Core design features are free during the platform's early phase. BuildSphere Plus is one subscription that covers the website and the mobile apps, however you purchase it.",
+      "Purchased through the Apple App Store or Google Play, it renews and cancels through your store account and is governed additionally by that store's terms. Purchased on the web, payment is processed by Stripe and you can manage or cancel it from your account page. Prices are shown before any charge; cancellation stops future renewals and leaves already-paid periods active.",
     ],
   ],
   [

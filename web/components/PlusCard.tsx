@@ -29,6 +29,24 @@ export function PlusCard() {
 
   const active = (owned ?? []).find((e) => e.productId.startsWith("buildsphere_plus") && e.status === "active");
 
+  async function portal() {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await fetch("/api/v1/purchases/stripe/portal", { method: "POST" });
+      const body = (await res.json()) as { url?: string; error?: string };
+      if (!res.ok || !body.url) {
+        setMessage(body.error ?? "The billing portal could not be opened.");
+        return;
+      }
+      window.location.href = body.url;
+    } catch {
+      setMessage("Could not reach the server — check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function checkout(plan: "monthly" | "yearly") {
     setBusy(true);
     setMessage(null);
@@ -55,10 +73,22 @@ export function PlusCard() {
     <div className="card" style={{ maxWidth: 520 }}>
       <h2 style={{ fontSize: "1rem", marginBottom: "0.25rem" }}>BuildSphere Plus</h2>
       {active ? (
-        <p>
-          Plus is <strong>active</strong> on this account ({active.platform}). Thank you for
-          building with us.
-        </p>
+        <>
+          <p>
+            Plus is <strong>active</strong> on this account ({active.platform}). Thank you for
+            building with us.
+          </p>
+          {active.platform === "stripe" ? (
+            <button className="btn secondary" disabled={busy} onClick={() => void portal()}>
+              {busy ? "Working…" : "Manage or cancel"}
+            </button>
+          ) : (
+            <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
+              Manage or cancel through your {active.platform === "apple" ? "Apple" : "Google Play"}{" "}
+              subscription settings.
+            </p>
+          )}
+        </>
       ) : (
         <>
           <p style={{ fontSize: "0.9rem", color: "var(--muted)" }}>
@@ -73,6 +103,10 @@ export function PlusCard() {
             <button className="btn secondary" disabled={busy || owned === null} onClick={() => void checkout("yearly")}>
               Plus yearly
             </button>
+          </p>
+          <p style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+            The exact price is shown on the secure checkout page before you confirm — nothing is
+            charged on this page. Cancel anytime; paid time stays active.
           </p>
         </>
       )}

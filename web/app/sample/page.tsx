@@ -51,13 +51,20 @@ export default function SamplePage() {
 
   useEffect(() => {
     // Idempotent: revisiting the sample reuses the stored copy so any
-    // revisions the visitor made survive their curiosity.
-    if (loadProject(SAMPLE_ID)) {
+    // revisions the visitor made survive their curiosity. A stored sample
+    // from an older generation (different lot) is regenerated — the
+    // showcase must always be the current best foot forward.
+    const existing = loadProject(SAMPLE_ID);
+    if (existing && existing.project.lotWidthFt === 90) {
       router.replace(`/app/project/${SAMPLE_ID}`);
       return;
     }
+    // An estate lot: a 4-bed single-story with an outdoor kitchen needs
+    // real ground. The showcase must fit its own site plan — a sample
+    // wearing setback violations sells nothing.
     const packages = runDesignLoop(SAMPLE_BRIEF, {
-      lotWidthFt: 70,
+      lotWidthFt: 90,
+      lotDepthFt: 150,
       budgetCents: 685_000_00,
       regionCode: "US_NATIONAL",
       finishes: SAMPLE_FINISHES,
@@ -68,8 +75,8 @@ export default function SamplePage() {
         ownerId: "local",
         name: "The Sample Home",
         addressText: null,
-        lotWidthFt: 70,
-        lotDepthFt: 130,
+        lotWidthFt: 90,
+        lotDepthFt: 150,
         budgetCents: 685_000_00,
         status: "designing",
       },

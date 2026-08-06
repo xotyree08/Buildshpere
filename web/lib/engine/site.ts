@@ -43,6 +43,28 @@ export function sanitizeSetbacks(input?: Partial<SetbackRules> | null): SetbackR
   };
 }
 
+/**
+ * The width a plan may actually occupy: the lot minus both side yards.
+ * The generator packs within THIS, not the raw lot width — otherwise the
+ * platform draws homes that violate its own setback rules on day one.
+ */
+export function buildableWidthFt(
+  lotWidthFt: number | null | undefined,
+  rules: SetbackRules = GENERIC_SETBACKS,
+): number | null {
+  if (!lotWidthFt || !Number.isFinite(lotWidthFt)) return null;
+  return Math.max(24, lotWidthFt - 2 * rules.sideFt);
+}
+
+/** The depth a plan may occupy: the lot minus front and rear yards. */
+export function buildableDepthFt(
+  lotDepthFt: number | null | undefined,
+  rules: SetbackRules = GENERIC_SETBACKS,
+): number | null {
+  if (!lotDepthFt || !Number.isFinite(lotDepthFt)) return null;
+  return Math.max(24, lotDepthFt - rules.frontFt - rules.rearFt);
+}
+
 /** Whether these rules are the untouched generic defaults (drives disclaimer wording). */
 export function isGenericSetbacks(rules: SetbackRules): boolean {
   return (

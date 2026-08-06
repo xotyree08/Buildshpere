@@ -40,7 +40,7 @@ const FAQS: [string, string][] = [
   ],
   [
     "What does BuildSphere cost?",
-    "Designing and revising concepts is free while the platform is in its early phase. BuildSphere Plus subscriptions arrive with the mobile apps; pricing will be published before anything is charged.",
+    "Designing and revising concepts is free while the platform is in its early phase. BuildSphere Plus is one subscription across web and the mobile apps — start it from your account page or inside the apps. The exact price is always shown before anything is charged, and nothing in the free tier moves behind the paywall retroactively.",
   ],
   [
     "Can I take my data and leave?",

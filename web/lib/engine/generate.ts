@@ -207,12 +207,15 @@ export interface ConceptVariant {
   /** Fraction of lot width the plan may use per row. */
   rowWidthFactor: number;
   twoStory: boolean;
+  /** Depth-fit room proportions, tried in order; distinct per variant so
+   * narrow-lot concepts stay visually different instead of converging. */
+  deepenScales: number[];
 }
 
 export const VARIANTS: ConceptVariant[] = [
-  { label: "The Courtyard", rowWidthFactor: 0.8, twoStory: false },
-  { label: "The Compact Two-Story", rowWidthFactor: 0.55, twoStory: true },
-  { label: "The Wide Ranch", rowWidthFactor: 0.95, twoStory: false },
+  { label: "The Courtyard", rowWidthFactor: 0.8, twoStory: false, deepenScales: [0.82, 0.68, 0.6] },
+  { label: "The Compact Two-Story", rowWidthFactor: 0.55, twoStory: true, deepenScales: [0.85, 0.72, 0.62] },
+  { label: "The Wide Ranch", rowWidthFactor: 0.95, twoStory: false, deepenScales: [0.92, 0.8, 0.7] },
 ];
 
 /** Variant order led by the style's natural massing (roof.ts massingBias). */
@@ -225,11 +228,23 @@ function orderedVariants(style: HomeStyle): ConceptVariant[] {
   });
 }
 
-export function generateConcepts(brief: DesignBrief, lotWidthFt: number | null): DesignConcept[] {
+/** Ground-floor depth of a model, in feet. */
+function planDepthFt(model: ParametricModel): number {
+  const ground = model.rooms.filter((r) => r.level === 0);
+  if (ground.length === 0) return 0;
+  return Math.max(...ground.map((r) => r.rect[1] + r.rect[3])) - Math.min(...ground.map((r) => r.rect[1]));
+}
+
+export function generateConcepts(
+  brief: DesignBrief,
+  lotWidthFt: number | null,
+  depthBudgetFt?: number | null,
+): DesignConcept[] {
   const lot = lotWidthFt && lotWidthFt > 24 ? lotWidthFt : 60;
+  const depthBudget = depthBudgetFt && depthBudgetFt > 24 ? depthBudgetFt : null;
   return orderedVariants(brief.style).map((variant, vi) => {
     const specs = programRooms(brief.program, brief.style);
-    const maxRow = Math.max(24, lot * variant.rowWidthFactor);
+    let maxRow = Math.max(24, lot * variant.rowWidthFactor);
 
     let levelSpecs: RoomSpec[][];
     if (variant.twoStory) {
@@ -243,7 +258,32 @@ export function generateConcepts(brief: DesignBrief, lotWidthFt: number | null):
       levelSpecs = [specs];
     }
 
-    const model = assembleModel(levelSpecs, maxRow);
+    // A narrow variant on a big program can pack deeper than the lot
+    // allows; widen the rows (never past the buildable width) until the
+    // plan fits the depth budget too. Deterministic: fixed growth, bounded.
+    let model = assembleModel(levelSpecs.map((l) => [...l]), maxRow);
+    if (depthBudget) {
+      let guard = 0;
+      while (guard++ < 8 && maxRow < lot && planDepthFt(model) > depthBudget) {
+        maxRow = Math.min(lot, maxRow * 1.2);
+        model = assembleModel(levelSpecs.map((l) => [...l]), maxRow);
+      }
+      // Width exhausted and still too deep: deepen the living rooms
+      // (lower aspect → narrower rooms → fuller rows), the way narrow-lot
+      // homes are actually proportioned. Garages and outdoor spaces keep
+      // their natural shape — a square garage helps nobody.
+      for (const scale of variant.deepenScales) {
+        if (planDepthFt(model) <= depthBudget) break;
+        const deepened = levelSpecs.map((l) =>
+          l.map((spec) =>
+            spec.kind === "garage" || spec.kind === "outdoor"
+              ? { ...spec }
+              : { ...spec, aspect: Math.max(0.6, spec.aspect * scale) },
+          ),
+        );
+        model = assembleModel(deepened, maxRow);
+      }
+    }
     const rooms = model.rooms;
 
     const sqft = Math.round(

@@ -15,6 +15,7 @@ import { generateConcepts } from "./generate";
 import { runChecks } from "./checks";
 import { estimateRevision, valueEngineering, type EstimateFinishes } from "./estimate";
 import { applyRevision, parseRevisionRequest, type RevisionOp } from "./revise";
+import { buildableDepthFt, buildableWidthFt, sanitizeSetbacks, type SetbackRules } from "./site";
 import type { FinishSelections } from "../catalog/materials";
 
 export interface LoopOptions {
@@ -22,6 +23,10 @@ export interface LoopOptions {
   budgetCents: number | null;
   regionCode?: string;
   finishes?: FinishSelections;
+  /** Lot depth; when present, plans stay within the buildable depth too. */
+  lotDepthFt?: number | null;
+  /** Jurisdiction rules; generic defaults when absent. */
+  setbacks?: Partial<SetbackRules> | null;
 }
 
 export interface RevisionPackage {
@@ -55,7 +60,12 @@ export interface ConceptPackage {
 }
 
 export function runDesignLoop(brief: DesignBrief, opts: LoopOptions): ConceptPackage[] {
-  return generateConcepts(brief, opts.lotWidthFt).map((concept) => {
+  // Concepts pack within the buildable envelope — the lot minus its yards —
+  // so the site plan never flags a home the platform itself just drew.
+  const rules = sanitizeSetbacks(opts.setbacks);
+  const packWidth = buildableWidthFt(opts.lotWidthFt, rules);
+  const packDepth = buildableDepthFt(opts.lotDepthFt ?? 120, rules);
+  return generateConcepts(brief, packWidth, packDepth).map((concept) => {
     const revisionId = `${concept.id}-r0`;
     const finishes: EstimateFinishes = { ...opts.finishes, styleKey: concept.style };
     const health = runChecks(concept.model, revisionId);
