@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
 import 'api/client.dart';
+import 'floor_plan.dart';
 
-/// One project's concepts at a glance: label, health, price range, and
-/// program. Read-only by design — the full document suite (bids,
-/// schedule, maintenance, interiors) lives on the web app, and this
-/// screen says so instead of pretending.
+/// One project's concepts: label, health, price range, program, a native
+/// floor plan per level, and the estimate broken down by category.
+/// Read-only by design — revisions and the 3D walkthrough live on the
+/// web app, and this screen says so instead of pretending.
 class ProjectDetailScreen extends StatelessWidget {
   const ProjectDetailScreen({super.key, required this.project});
 
@@ -59,13 +60,45 @@ class ProjectDetailScreen extends StatelessWidget {
                     Text(c.price, style: Theme.of(context).textTheme.titleLarge),
                     Text('Range ${c.range}',
                         style: Theme.of(context).textTheme.bodySmall),
+                    for (var level = 0; level < c.levels; level++)
+                      if (c.rooms.any((r) => r.level == level)) ...[
+                        const SizedBox(height: 10),
+                        if (c.levels > 1)
+                          Text('Level ${level + 1}',
+                              style: Theme.of(context).textTheme.bodySmall),
+                        FloorPlanView(
+                            rooms: c.rooms
+                                .where((r) => r.level == level)
+                                .toList(growable: false)),
+                      ],
+                    if (c.categories.isNotEmpty)
+                      ExpansionTile(
+                        tilePadding: EdgeInsets.zero,
+                        title: Text('Estimate breakdown',
+                            style: Theme.of(context).textTheme.titleSmall),
+                        children: [
+                          for (final cat in c.categories)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 3),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(child: Text(cat.category)),
+                                  Text(cat.price,
+                                      style:
+                                          Theme.of(context).textTheme.bodyMedium),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
                   ],
                 ),
               ),
             ),
           const SizedBox(height: 8),
           Text(
-            'Drawings, the 3D walkthrough, bid package, schedule, and maintenance plan are on the web app — this screen keeps the numbers in your pocket.',
+            'Revisions, the 3D walkthrough, bid package, schedule, and maintenance plan are on the web app — this screen keeps the plans and numbers in your pocket.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],

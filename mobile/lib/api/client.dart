@@ -60,6 +60,36 @@ String formatUsd(int cents) {
   return buf.toString();
 }
 
+/// One room's footprint, in feet, for the native floor-plan painter.
+class RoomShape {
+  const RoomShape({
+    required this.label,
+    required this.kind,
+    required this.level,
+    required this.x,
+    required this.y,
+    required this.w,
+    required this.d,
+  });
+
+  final String label;
+  final String kind;
+  final int level;
+  final double x;
+  final double y;
+  final double w;
+  final double d;
+}
+
+/// One estimate category rolled up from its line items.
+class CategoryTotal {
+  const CategoryTotal({required this.category, required this.cents});
+  final String category;
+  final int cents;
+
+  String get price => formatUsd(cents);
+}
+
 /// One concept inside a synced project — enough for the detail screen.
 class ConceptSummary {
   const ConceptSummary({
@@ -70,6 +100,9 @@ class ConceptSummary {
     required this.highCents,
     required this.beds,
     required this.baths,
+    this.levels = 1,
+    this.rooms = const [],
+    this.categories = const [],
   });
 
   final String label;
@@ -79,9 +112,56 @@ class ConceptSummary {
   final int highCents;
   final int beds;
   final int baths;
+  final int levels;
+  final List<RoomShape> rooms;
+  final List<CategoryTotal> categories;
 
   String get price => formatUsd(totalCents);
   String get range => '${formatUsd(lowCents)} – ${formatUsd(highCents)}';
+}
+
+/// Roll estimate line items up into category subtotals, largest first —
+/// the same qty × unit-cost arithmetic the web estimate engine uses.
+List<CategoryTotal> categoryTotals(List<dynamic> lineItems) {
+  final sums = <String, double>{};
+  for (final raw in lineItems) {
+    if (raw is! Map) continue;
+    final category = (raw['category'] as String?) ?? 'Other';
+    final qty = (raw['qty'] as num?)?.toDouble() ?? 0;
+    final unit = (raw['unitCostCents'] as num?)?.toDouble() ?? 0;
+    sums[category] = (sums[category] ?? 0) + qty * unit;
+  }
+  final list = sums.entries
+      .map((e) => CategoryTotal(category: e.key, cents: e.value.round()))
+      .where((c) => c.cents > 0)
+      .toList()
+    ..sort((a, b) => b.cents.compareTo(a.cents));
+  return list;
+}
+
+/// Parse the synced model's rooms; malformed entries are skipped, never fatal.
+List<RoomShape> parseRooms(dynamic model) {
+  if (model is! Map) return const [];
+  final rooms = model['rooms'];
+  if (rooms is! List) return const [];
+  final out = <RoomShape>[];
+  for (final raw in rooms) {
+    if (raw is! Map) continue;
+    final rect = raw['rect'];
+    if (rect is! List || rect.length != 4) continue;
+    final nums = rect.map((v) => (v as num?)?.toDouble()).toList();
+    if (nums.any((v) => v == null)) continue;
+    out.add(RoomShape(
+      label: (raw['label'] as String?) ?? '',
+      kind: (raw['kind'] as String?) ?? 'other',
+      level: (raw['level'] as num?)?.toInt() ?? 0,
+      x: nums[0]!,
+      y: nums[1]!,
+      w: nums[2]!,
+      d: nums[3]!,
+    ));
+  }
+  return out;
 }
 
 class ProjectSummary {
@@ -195,6 +275,12 @@ class ApiClient {
             highCents: (estimate?['highCents'] as num?)?.toInt() ?? total,
             beds: (concept?['beds'] as num?)?.toInt() ?? 0,
             baths: (concept?['baths'] as num?)?.toInt() ?? 0,
+            levels: (concept?['model'] is Map
+                    ? ((concept!['model'] as Map)['levels'] as num?)?.toInt()
+                    : null) ??
+                1,
+            rooms: parseRooms(concept?['model']),
+            categories: categoryTotals((estimate?['lineItems'] as List?) ?? const []),
           ));
         }
         return ProjectSummary(
