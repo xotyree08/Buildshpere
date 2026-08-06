@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { PlusCard } from "@/components/PlusCard";
 import { fetchMe, login, logout, signup, syncNow, type AuthUser } from "@/lib/sync";
 import { setAccountEmail } from "@/lib/store";
 
@@ -99,6 +100,7 @@ export default function AccountPage() {
       </div>
 
       {user === undefined ? null : user ? (
+        <>
         <div className="card" style={{ maxWidth: 520 }}>
           <p>
             Signed in as <strong>{user.email}</strong>. Projects sync to your account and follow
@@ -172,6 +174,8 @@ export default function AccountPage() {
             </>
           )}
         </div>
+        <PlusCard />
+        </>
       ) : (
         <form className="card" style={{ maxWidth: 520 }} onSubmit={submit}>
           <p>
