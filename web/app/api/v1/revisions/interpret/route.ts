@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { ADDABLE_KINDS } from "@/lib/engine/revise";
 import { describePlan, INTERPRET_SCHEMA, validateInterpretation } from "@/lib/engine/interpret";
 import type { ParametricModel } from "@/lib/types";
+import { clientKey, RATE_LIMITED_MESSAGE, rateLimit } from "@/lib/server/ratelimit";
 
 interface InterpretRequest {
   request: string;
@@ -18,6 +19,14 @@ interface InterpretRequest {
  * the client keeps the parser-only experience.
  */
 export async function POST(req: Request) {
+  const verdict = rateLimit(clientKey(req, "interpret"), 30, 10 * 60_000);
+  if (!verdict.allowed) {
+    return NextResponse.json(
+      { error: RATE_LIMITED_MESSAGE },
+      { status: 429, headers: { "retry-after": String(verdict.retryAfterSeconds) } },
+    );
+  }
+
   const apiKey = process.env.AI_API_KEY ?? process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return NextResponse.json({ error: "AI interpretation is not configured on this deployment." }, { status: 503 });

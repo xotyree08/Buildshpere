@@ -40,7 +40,7 @@ const FAQS: [string, string][] = [
   ],
   [
     "What does BuildSphere cost?",
-    "Designing and revising concepts is free while the platform is in its early phase. BuildSphere Plus is one subscription across web and the mobile apps — start it from your account page or inside the apps. The exact price is always shown before anything is charged, and nothing in the free tier moves behind the paywall retroactively.",
+    "Designing and revising concepts is free, and this browser keeps unlimited local projects. A free account additionally syncs three projects to the cloud; BuildSphere Plus — one subscription across web and the mobile apps, started from your account page or inside the apps — lifts the sync limit and includes every premium feature as it arrives. The exact price is always shown before anything is charged, and anything you already synced stays yours.",
   ],
   [
     "Can I take my data and leave?",

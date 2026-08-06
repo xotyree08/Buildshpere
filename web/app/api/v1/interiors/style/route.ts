@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 
 import { INTERIOR_SCHEMES, schemeByKey } from "@/lib/engine/interiors";
+import { clientKey, RATE_LIMITED_MESSAGE, rateLimit } from "@/lib/server/ratelimit";
 
 /**
  * The AI interior stylist: maps "how should it feel" onto one of the
@@ -21,6 +22,14 @@ const STYLIST_SCHEMA = {
 } as const;
 
 export async function POST(req: Request) {
+  const verdict = rateLimit(clientKey(req, "style"), 30, 10 * 60_000);
+  if (!verdict.allowed) {
+    return NextResponse.json(
+      { error: RATE_LIMITED_MESSAGE },
+      { status: 429, headers: { "retry-after": String(verdict.retryAfterSeconds) } },
+    );
+  }
+
   const apiKey = process.env.AI_API_KEY ?? process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return NextResponse.json({ error: "AI styling is not configured on this deployment." }, { status: 503 });

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import { STYLES } from "@/lib/catalog/styles";
 import { ANALYSIS_SCHEMA, validateAnalysis } from "@/lib/engine/inspiration";
+import { clientKey, RATE_LIMITED_MESSAGE, rateLimit } from "@/lib/server/ratelimit";
 
 interface AnalyzeRequest {
   /** Base64 image data, no data-URL prefix. */
@@ -19,6 +20,14 @@ const STYLE_GUIDE = STYLES.map((s) => `- ${s.key}: ${s.label} (${s.category}) â€
  * route degrades to 503 and the client falls back to manual style choice.
  */
 export async function POST(req: Request) {
+  const verdict = rateLimit(clientKey(req, "analyze"), 10, 10 * 60_000);
+  if (!verdict.allowed) {
+    return NextResponse.json(
+      { error: RATE_LIMITED_MESSAGE },
+      { status: 429, headers: { "retry-after": String(verdict.retryAfterSeconds) } },
+    );
+  }
+
   const apiKey = process.env.AI_API_KEY ?? process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
