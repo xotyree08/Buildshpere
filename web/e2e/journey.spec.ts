@@ -13,15 +13,15 @@ async function generateProject(page: Page): Promise<void> {
   await page.waitForURL(/\/app\/project\//, { timeout: 30_000 });
   // The project page renders client-side after the URL changes; wait for a
   // concept card before asserting on content (CI runners are slower than dev).
-  await page.getByText("The Courtyard").first().waitFor({ timeout: 30_000 });
+  await page.getByText("The Glass Courtyard").first().waitFor({ timeout: 30_000 });
 }
 
 test("interview defaults generate three priced, health-checked concepts", async ({ page }) => {
   await generateProject(page);
   const body = await page.textContent("body");
-  expect(body).toContain("The Courtyard");
-  expect(body).toContain("The Compact Two-Story");
-  expect(body).toContain("The Wide Ranch");
+  expect(body).toContain("The Glass Courtyard");
+  expect(body).toContain("The Stacked Modern");
+  expect(body).toContain("The Long Horizon");
   expect(await page.getByText(/Health \d+/).count()).toBeGreaterThanOrEqual(3);
   expect(body).toMatch(/\$\d{3},\d{3}/); // real dollar totals
 });
@@ -68,7 +68,7 @@ test("maintenance plan follows the chosen materials", async ({ page }) => {
   await page.locator('label:has-text("Roofing") select').selectOption("cedar_shake");
   await page.locator('button[type="submit"]').click();
   await page.waitForURL(/\/app\/project\//, { timeout: 30_000 });
-  await page.getByText("The Courtyard").first().waitFor({ timeout: 30_000 });
+  await page.getByText("The Glass Courtyard").first().waitFor({ timeout: 30_000 });
   await page.getByRole("link", { name: "Maintenance" }).click();
   await page.waitForURL(/\/maintenance/);
   await expect(page.locator("body")).toContainText("Treat shakes", { timeout: 30_000 }); // cedar-specific task
@@ -97,7 +97,7 @@ test("the sample project builds itself from the landing CTA", async ({ page }) =
   await page.goto("/");
   await page.getByRole("link", { name: "Tour a sample project" }).click();
   await page.waitForURL(/\/app\/project\/sample-home/, { timeout: 30_000 });
-  await page.getByText("The Courtyard").first().waitFor({ timeout: 30_000 });
+  await page.getByText("The Garden Courtyard").first().waitFor({ timeout: 30_000 });
   await expect(page.locator("body")).toContainText("The Sample Home");
   // Revisiting reuses the stored copy instead of regenerating.
   await page.goto("/sample");
