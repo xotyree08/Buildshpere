@@ -250,7 +250,10 @@ export function furnishRoom(room: Room, _openings: Opening[] = []): FurnitureIte
     }
     case "bathroom": {
       add("vanity", "Vanity", x + WALL_INSET, z + WALL_INSET, Math.min(4.5, iw), 1.9, 3, "wood");
-      add("shower", "Shower / tub", x + w - WALL_INSET - 2.6, z + WALL_INSET, 2.6, Math.min(4.5, d - 2 * WALL_INSET), 6.5, "metal");
+      // Powder rooms have no shower — staging one would lie about the plan.
+      if (!/powder/i.test(room.label)) {
+        add("shower", "Shower / tub", x + w - WALL_INSET - 2.6, z + WALL_INSET, 2.6, Math.min(4.5, d - 2 * WALL_INSET), 6.5, "metal");
+      }
       break;
     }
     case "theater": {

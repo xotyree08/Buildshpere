@@ -90,7 +90,10 @@ export function buildPlumbingPlan(model: ParametricModel): PlumbingPlan {
       case "bathroom":
         fixtures.push(fixture("lavatory", x + 2, z + 1.2)); // at the vanity
         fixtures.push(fixture("toilet", x + Math.min(5, w - 1.5), z + 1.2));
-        fixtures.push(fixture("shower_tub", x + w - 1.8, z + Math.min(3, d - 1.5)));
+        // Powder rooms are lavatory + water closet only — no shower.
+        if (!/powder/i.test(room.label)) {
+          fixtures.push(fixture("shower_tub", x + w - 1.8, z + Math.min(3, d - 1.5)));
+        }
         break;
       case "laundry":
         fixtures.push(fixture("washer", x + 1.8, z + 1.2));

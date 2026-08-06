@@ -62,7 +62,8 @@ export default function NewProjectPage() {
       program: {
         familySize: numField(familySize, { min: 1, max: 12, fallback: 4 }),
         bedrooms: numField(bedrooms, { min: 1, max: 8, fallback: 3 }),
-        bathrooms: numField(bathrooms, { min: 1, max: 8, fallback: 2 }),
+        // Halves are real programs ("2.5 bath") — snap to the nearest 0.5.
+        bathrooms: Math.round(numField(bathrooms, { min: 1, max: 8, fallback: 2, integer: false }) * 2) / 2,
         office,
         gym,
         theater,
@@ -155,8 +156,8 @@ export default function NewProjectPage() {
             <input type="number" min={1} max={8} value={bedrooms} onChange={(e) => setBedrooms(e.target.value)} />
           </label>
           <label className="field">
-            <span>Bathrooms</span>
-            <input type="number" min={1} max={8} value={bathrooms} onChange={(e) => setBathrooms(e.target.value)} />
+            <span>Bathrooms (2.5 = half bath)</span>
+            <input type="number" min={1} max={8} step={0.5} value={bathrooms} onChange={(e) => setBathrooms(e.target.value)} />
           </label>
           <label className="field">
             <span>Garage bays</span>
