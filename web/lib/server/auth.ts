@@ -20,6 +20,8 @@ export interface AuthUser {
   displayName: string | null;
   /** 'homeowner' | 'professional' — license verification arrives with full Phase 2 (L8). */
   role: string;
+  /** ISO timestamp when the address was verified; null until then. */
+  emailConfirmedAt: string | null;
 }
 
 export function hashPassword(password: string): string {
@@ -58,7 +60,7 @@ export async function createUser(db: Db, email: string, password: string): Promi
     "insert into users (id, email, password_hash, display_name, email_confirmed_at, created_at, role) values ($1, $2, $3, $4, $5, $6, $7)",
     [id, normalized, hashPassword(password), null, null, new Date().toISOString(), "homeowner"],
   );
-  return { ok: true, user: { id, email: normalized, displayName: null, role: "homeowner" } };
+  return { ok: true, user: { id, email: normalized, displayName: null, role: "homeowner", emailConfirmedAt: null } };
 }
 
 /** Role change gated by an access code; the route enforces the code. */
@@ -69,7 +71,7 @@ export async function setRole(db: Db, userId: string, role: "homeowner" | "profe
 export async function authenticate(db: Db, email: string, password: string): Promise<AuthUser | null> {
   const normalized = email.trim().toLowerCase();
   const res = await db.query(
-    "select id, email, password_hash, display_name, role from users where email = $1",
+    "select id, email, password_hash, display_name, role, email_confirmed_at from users where email = $1",
     [normalized],
   );
   const row = res.rows[0];
@@ -80,6 +82,7 @@ export async function authenticate(db: Db, email: string, password: string): Pro
     email: String(row.email),
     displayName: (row.display_name as string | null) ?? null,
     role: String(row.role ?? "homeowner"),
+    emailConfirmedAt: row.email_confirmed_at ? String(row.email_confirmed_at) : null,
   };
 }
 
@@ -97,7 +100,7 @@ export async function createSession(db: Db, userId: string): Promise<string> {
 export async function getSessionUser(db: Db, rawToken: string): Promise<AuthUser | null> {
   if (!rawToken) return null;
   const res = await db.query(
-    "select u.id, u.email, u.display_name, u.role, s.expires_at from auth_sessions s join users u on u.id = s.user_id where s.token_hash = $1",
+    "select u.id, u.email, u.display_name, u.role, u.email_confirmed_at, s.expires_at from auth_sessions s join users u on u.id = s.user_id where s.token_hash = $1",
     [tokenHash(rawToken)],
   );
   const row = res.rows[0];
@@ -111,6 +114,7 @@ export async function getSessionUser(db: Db, rawToken: string): Promise<AuthUser
     email: String(row.email),
     displayName: (row.display_name as string | null) ?? null,
     role: String(row.role ?? "homeowner"),
+    emailConfirmedAt: row.email_confirmed_at ? String(row.email_confirmed_at) : null,
   };
 }
 
@@ -148,6 +152,51 @@ export async function createPasswordReset(
     ],
   );
   return { token: raw, userId: String(row.id) };
+}
+
+export const VERIFY_TOKEN_HOURS = 48;
+
+/** Issue a single-use email-verification token (hash at rest). */
+export async function createEmailVerification(
+  db: Db,
+  userId: string,
+  now: number = Date.now(),
+): Promise<string> {
+  const raw = randomBytes(32).toString("hex");
+  await db.query(
+    "insert into email_verifications (token_hash, user_id, created_at, expires_at) values ($1, $2, $3, $4)",
+    [
+      tokenHash(raw),
+      userId,
+      new Date(now).toISOString(),
+      new Date(now + VERIFY_TOKEN_HOURS * 60 * 60 * 1000).toISOString(),
+    ],
+  );
+  return raw;
+}
+
+export type VerifyEmailResult = { ok: true; userId: string } | { ok: false; error: string };
+
+/** Consume a verification token and stamp the address confirmed. */
+export async function verifyEmail(db: Db, rawToken: string, now: number = Date.now()): Promise<VerifyEmailResult> {
+  const res = await db.query(
+    "select token_hash, user_id, expires_at, used_at from email_verifications where token_hash = $1",
+    [tokenHash(rawToken)],
+  );
+  const row = res.rows[0];
+  if (!row || row.used_at != null) {
+    return { ok: false, error: "This verification link is invalid or was already used — request a new one from your account page." };
+  }
+  if (new Date(String(row.expires_at)).getTime() < now) {
+    return { ok: false, error: "This verification link has expired — request a new one from your account page." };
+  }
+  const userId = String(row.user_id);
+  await db.query("update email_verifications set used_at = $1 where token_hash = $2", [
+    new Date(now).toISOString(),
+    tokenHash(rawToken),
+  ]);
+  await db.query("update users set email_confirmed_at = $1 where id = $2", [new Date(now).toISOString(), userId]);
+  return { ok: true, userId };
 }
 
 export type ResetResult = { ok: true; userId: string } | { ok: false; error: string };

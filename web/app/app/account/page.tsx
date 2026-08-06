@@ -106,6 +106,32 @@ export default function AccountPage() {
             Signed in as <strong>{user.email}</strong>. Projects sync to your account and follow
             you across devices.
           </p>
+          {user.emailConfirmedAt ? (
+            <p className="status-pass" style={{ fontSize: "0.85rem" }}>Email verified.</p>
+          ) : (
+            <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
+              Email not verified yet.{" "}
+              <button
+                type="button"
+                disabled={busy}
+                style={{ font: "inherit", background: "none", border: "none", padding: 0, color: "var(--fg)", textDecoration: "underline", cursor: "pointer" }}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    const res = await fetch("/api/v1/auth/verify/resend", { method: "POST" });
+                    const body = (await res.json()) as { message?: string; error?: string };
+                    setMessage(body.message ?? body.error ?? "Something went wrong — try again.");
+                  } catch {
+                    setMessage("Could not reach the server — try again.");
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Send verification email
+              </button>
+            </p>
+          )}
           <p style={{ display: "flex", gap: "0.75rem" }}>
             <button className="btn" onClick={handleSync} disabled={busy}>
               {busy ? "Working…" : "Sync now"}

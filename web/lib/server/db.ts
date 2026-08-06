@@ -141,6 +141,15 @@ create table if not exists metrics_daily (
   hits integer not null,
   primary key (day, path)
 );
+
+create table if not exists email_verifications (
+  token_hash text primary key,
+  user_id text not null,
+  created_at timestamp not null,
+  expires_at timestamp not null,
+  used_at timestamp
+);
+create index if not exists email_verifications_user on email_verifications(user_id);
 `;
 
 /** Minimal query surface both pg.Pool and the test engine satisfy. */
@@ -265,6 +274,17 @@ export async function ensureSchema(db: Db): Promise<void> {
   );
   if (metrics.rows.length === 0) {
     const start = SCHEMA_SQL.indexOf("create table if not exists metrics_daily");
+    const end = SCHEMA_SQL.indexOf("create table if not exists email_verifications");
+    for (const statement of SCHEMA_SQL.slice(start, end).split(";")) {
+      const sql = statement.trim();
+      if (sql) await db.query(sql);
+    }
+  }
+  const verifications = await db.query(
+    "select 1 from information_schema.tables where table_name = 'email_verifications'",
+  );
+  if (verifications.rows.length === 0) {
+    const start = SCHEMA_SQL.indexOf("create table if not exists email_verifications");
     for (const statement of SCHEMA_SQL.slice(start).split(";")) {
       const sql = statement.trim();
       if (sql) await db.query(sql);
