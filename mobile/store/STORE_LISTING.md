@@ -55,13 +55,16 @@ projects export to a single file anytime — your data is yours.
 - iOS icons live in `ios/Runner/Assets.xcassets/AppIcon.appiconset`
 - Android launcher icons live in `android/app/src/main/res/mipmap-*`
 
-Still needed from a device or simulator (consoles reject without them):
+- `screenshots/ios-*.png` — 1290×2796 phone screenshots (home, sign-in,
+  concept with floor plan, upgrade), captured from the real app via the
+  web screenshot harness (`lib/screenshots_app.dart`)
+- `screenshots/play-*.png` — the same four at 1080×2340
+- `playstore/feature_graphic_1024x500.png` — Play feature graphic
 
-- Phone screenshots: 3–8 per store (6.5" iPhone; Play accepts any phone)
-- Play feature graphic: 1024×500
-
-Suggested screenshot set: projects list → concept with floor plan →
-estimate breakdown → upgrade page.
+Regenerate anytime: `flutter build web -t lib/screenshots_app.dart
+--release --no-web-resources-cdn`, serve `build/web`, and capture at
+phone dimensions. Swap in device screenshots later if you prefer —
+these are real app screens, not mockups.
 
 ## Android release signing (one-time)
 
