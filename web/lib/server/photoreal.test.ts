@@ -19,7 +19,9 @@ function fetchStub(handler: (url: string, init?: RequestInit) => { status: numbe
       json: async () => res.body ?? {},
       arrayBuffer: async () => {
         const b = res.bytes ?? Buffer.alloc(0);
-        return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+        const out = new ArrayBuffer(b.byteLength);
+        new Uint8Array(out).set(b);
+        return out;
       },
     };
   };
