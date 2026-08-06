@@ -51,8 +51,11 @@ export default function SamplePage() {
 
   useEffect(() => {
     // Idempotent: revisiting the sample reuses the stored copy so any
-    // revisions the visitor made survive their curiosity.
-    if (loadProject(SAMPLE_ID)) {
+    // revisions the visitor made survive their curiosity. A stored sample
+    // from an older generation (different lot) is regenerated — the
+    // showcase must always be the current best foot forward.
+    const existing = loadProject(SAMPLE_ID);
+    if (existing && existing.project.lotWidthFt === 90) {
       router.replace(`/app/project/${SAMPLE_ID}`);
       return;
     }
