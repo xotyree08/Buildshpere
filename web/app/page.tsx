@@ -61,8 +61,8 @@ export default function Home() {
             <Link className="btn" href="/app">
               Begin your design
             </Link>
-            <Link className="btn secondary" href="/app/new">
-              See it in minutes
+            <Link className="btn secondary" href="/sample">
+              Tour a sample project
             </Link>
           </p>
         </section>

@@ -93,6 +93,17 @@ test("design report downloads a real multi-page PDF", async ({ page }) => {
   expect(pdf.length).toBeGreaterThan(20_000);
 });
 
+test("the sample project builds itself from the landing CTA", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("link", { name: "Tour a sample project" }).click();
+  await page.waitForURL(/\/app\/project\/sample-home/, { timeout: 30_000 });
+  await page.getByText("The Courtyard").first().waitFor({ timeout: 30_000 });
+  await expect(page.locator("body")).toContainText("The Sample Home");
+  // Revisiting reuses the stored copy instead of regenerating.
+  await page.goto("/sample");
+  await page.waitForURL(/\/app\/project\/sample-home/, { timeout: 30_000 });
+});
+
 test("landing folio renders the engine drawings without horizontal overflow on a phone", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
