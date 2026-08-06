@@ -10,41 +10,9 @@
   --ink: #17140f;
   --ivory: #f6f2e8;
   --display: "Didot", "Playfair Display", "Cormorant Garamond", Georgia, "Times New Roman", serif;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #14120e;
-    --fg: #ece7db;
-    --muted: #9d968a;
-    --card: #1c1913;
-    --line: #2e2a20;
-    --accent: #55a87e;
-    --brass: #c9a96a;
-    --brass-soft: #9a7b3f;
-    --ink: #0f0d0a;
-    --ivory: #ece7db;
-  }
-}
-
-/* The public folio (landing, FAQ) is ivory by identity — the pearl-on-white
- * look IS the brand, so these pages ignore system dark mode. App screens
- * keep both themes. */
-.folio {
-  --bg: #f6f4ee;
-  --fg: #211d17;
-  --muted: #7c7568;
-  --card: #fdfcf9;
-  --line: #e2dcce;
-  --accent: #206a48;
-  --brass: #9a7b3f;
-  --brass-soft: #c9a96a;
-  --ink: #17140f;
-  --ivory: #f6f2e8;
-  background: var(--bg);
-  color: var(--fg);
+  /* The ivory pearl palette IS the brand, site-wide — BuildSphere does
+   * not follow system dark mode anywhere. */
   color-scheme: light;
-  min-height: 100vh;
 }
 
 * {
@@ -120,24 +88,6 @@ h1, h2, .display {
   --elev-wall: #efece3;
   --site-lot: #e7efdc;
   --site-street: #e2e2dd;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --plan-bedroom: #2a3a4a;
-    --plan-bathroom: #26382f;
-    --plan-kitchen: #423527;
-    --plan-living: #3b382e;
-    --plan-office: #35304a;
-    --plan-garage: #2e2e2c;
-    --plan-hall: #262624;
-    --plan-outdoor: #2d3a26;
-    --plan-window: #35506b;
-    --plan-roof: #4a4234;
-    --elev-wall: #2a2a27;
-    --site-lot: #232a1e;
-    --site-street: #262624;
-  }
 }
 
 /* Forms & app chrome */
