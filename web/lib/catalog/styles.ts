@@ -25,6 +25,28 @@ export const STYLE_CATEGORIES = [
   "Coastal & Resort",
 ] as const;
 
+/** Massing archetypes the generator produces, keyed for naming. */
+export type MassingKey = "courtyard" | "two_story" | "wide";
+
+/**
+ * Concept names flavored by style family — the same three massing
+ * archetypes, wearing the family's language instead of one generic set
+ * of labels for every customer.
+ */
+export const CONCEPT_NAMES: Record<(typeof STYLE_CATEGORIES)[number], Record<MassingKey, string>> = {
+  "Modern & Contemporary": { courtyard: "The Glass Courtyard", two_story: "The Stacked Modern", wide: "The Long Horizon" },
+  "Classic American": { courtyard: "The Garden Courtyard", two_story: "The Foursquare", wide: "The Wide Ranch" },
+  European: { courtyard: "The Cloistered Court", two_story: "The Manor", wide: "The Villa" },
+  "Rustic & Country": { courtyard: "The Hearthside Court", two_story: "The Homestead", wide: "The Prairie Ranch" },
+  "Coastal & Resort": { courtyard: "The Breezeway", two_story: "The Lookout", wide: "The Shoreline" },
+};
+
+/** Style-flavored concept name; null for unknown categories (caller falls back). */
+export function conceptName(category: string | undefined, massing: MassingKey): string | null {
+  if (!category) return null;
+  return CONCEPT_NAMES[category as (typeof STYLE_CATEGORIES)[number]]?.[massing] ?? null;
+}
+
 export const STYLES: StyleInfo[] = [
   // Modern & Contemporary
   { key: "modern", label: "Modern", category: "Modern & Contemporary", costFactor: 1.05, roof: "flat or low-slope", description: "Clean lines, open plans, expansive glass, honest materials." },

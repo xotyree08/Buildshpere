@@ -19,6 +19,7 @@ import type {
   Room,
   RoomKind,
 } from "../types";
+import { conceptName, styleInfo, type MassingKey } from "../catalog/styles";
 import { massingBias, PORCH_STYLES } from "./roof";
 
 export interface RoomSpec {
@@ -204,6 +205,8 @@ export function assembleModel(levelSpecs: RoomSpec[][], maxRowWidthFt: number): 
 
 export interface ConceptVariant {
   label: string;
+  /** Massing archetype key — drives the style-flavored display name. */
+  massing: MassingKey;
   /** Fraction of lot width the plan may use per row. */
   rowWidthFactor: number;
   twoStory: boolean;
@@ -213,9 +216,9 @@ export interface ConceptVariant {
 }
 
 export const VARIANTS: ConceptVariant[] = [
-  { label: "The Courtyard", rowWidthFactor: 0.8, twoStory: false, deepenScales: [0.82, 0.68, 0.6] },
-  { label: "The Compact Two-Story", rowWidthFactor: 0.55, twoStory: true, deepenScales: [0.85, 0.72, 0.62] },
-  { label: "The Wide Ranch", rowWidthFactor: 0.95, twoStory: false, deepenScales: [0.92, 0.8, 0.7] },
+  { label: "The Courtyard", massing: "courtyard", rowWidthFactor: 0.8, twoStory: false, deepenScales: [0.82, 0.68, 0.6] },
+  { label: "The Compact Two-Story", massing: "two_story", rowWidthFactor: 0.55, twoStory: true, deepenScales: [0.85, 0.72, 0.62] },
+  { label: "The Wide Ranch", massing: "wide", rowWidthFactor: 0.95, twoStory: false, deepenScales: [0.92, 0.8, 0.7] },
 ];
 
 /** Variant order led by the style's natural massing (roof.ts massingBias). */
@@ -293,7 +296,7 @@ export function generateConcepts(
     return {
       id: `concept-${vi}`,
       briefId: brief.id,
-      label: variant.label,
+      label: conceptName(styleInfo(brief.style)?.category, variant.massing) ?? variant.label,
       style: brief.style,
       sqft,
       beds: brief.program.bedrooms,

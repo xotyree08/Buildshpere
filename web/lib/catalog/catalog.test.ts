@@ -144,3 +144,36 @@ describe("finish selections", () => {
     expect(repriced.healthScore).toBe(pkg.healthScore);
   });
 });
+
+describe("style-flavored concept names", () => {
+  it("every style category names all three massings, uniquely within itself", async () => {
+    const { CONCEPT_NAMES, STYLE_CATEGORIES, conceptName } = await import("./styles");
+    for (const category of STYLE_CATEGORIES) {
+      const names = Object.values(CONCEPT_NAMES[category]);
+      expect(names).toHaveLength(3);
+      expect(new Set(names).size).toBe(3);
+      for (const n of names) expect(n).toMatch(/^The /);
+    }
+    expect(conceptName("Modern & Contemporary", "courtyard")).toBe("The Glass Courtyard");
+    expect(conceptName("No Such Category", "courtyard")).toBeNull();
+    expect(conceptName(undefined, "wide")).toBeNull();
+  });
+
+  it("generated concepts wear their style family's names", async () => {
+    const { generateConcepts } = await import("../engine/generate");
+    const brief = (style: string) =>
+      ({
+        id: "b", projectId: "p", version: 1,
+        program: { familySize: 4, bedrooms: 3, bathrooms: 2, office: false, gym: false, theater: false, outdoorKitchen: false, garageBays: 2 },
+        style, interiors: {}, lifestyleNotes: "",
+      }) as import("../types").DesignBrief;
+    const modern = generateConcepts(brief("modern"), 60).map((c) => c.label);
+    expect(modern).toContain("The Glass Courtyard");
+    expect(modern).toContain("The Stacked Modern");
+    const craftsman = generateConcepts(brief("craftsman"), 60).map((c) => c.label);
+    expect(craftsman).toContain("The Garden Courtyard");
+    expect(craftsman).toContain("The Wide Ranch");
+    // The two sets share no names — customers comparing styles see the difference.
+    expect(modern.filter((n) => craftsman.includes(n))).toEqual([]);
+  });
+});
