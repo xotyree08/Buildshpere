@@ -11,7 +11,18 @@ import { exteriorPalette } from "@/lib/render/palette";
 import { buildScene3D, type Box3 } from "@/lib/render/scene3d";
 import type { HomeStyle, ParametricModel } from "@/lib/types";
 import { BrandMark } from "./BrandMark";
-import { concreteTexture, grassTexture, roofTextureFor, TILE_FT, wallTextureFor } from "./textures3d";
+import {
+  clapboardBump,
+  concreteTexture,
+  grassTexture,
+  plasterTexture,
+  roofTextureFor,
+  shingleBump,
+  TILE_FT,
+  tileFloorTexture,
+  wallTextureFor,
+  woodFloorTexture,
+} from "./textures3d";
 
 const EYE_FT = 5.5;
 const WALK_SPEED = 14; // ft/s
@@ -121,8 +132,24 @@ export function Viewer3D({
 
     // Shared materials.
     const wallTex = track(wallTextureFor(palette));
+    const wallBump = track(clapboardBump());
     const roofTex = track(roofTextureFor(palette));
+    const roofBump = track(shingleBump());
     const driveTex = track(concreteTexture("#a8a49c"));
+    const plasterTex = track(plasterTexture("#efece4"));
+    const floorMats = new Map<string, THREE.MeshStandardMaterial>();
+    // Wood in living spaces, tile where the palette paints a cool wet-room
+    // tone — keyed by the scheme color the floor box already carries.
+    const floorMaterial = (color: string) => {
+      if (!floorMats.has(color)) {
+        const n = parseInt(color.slice(1), 16);
+        const cool = (n & 255) > ((n >> 16) & 255); // blue > red reads as tile
+        const tex = track(cool ? tileFloorTexture(color) : woodFloorTexture(color));
+        tex.repeat.set(1, 1);
+        floorMats.set(color, track(new THREE.MeshStandardMaterial({ map: tex, roughness: cool ? 0.5 : 0.72 })));
+      }
+      return floorMats.get(color)!;
+    };
     const glassMat = track(
       new THREE.MeshStandardMaterial({ color: 0xbfd9e8, roughness: 0.08, metalness: 0.4, transparent: true, opacity: 0.62 }),
     );
@@ -135,11 +162,29 @@ export function Viewer3D({
 
     const materialFor = (box: Box3): THREE.Material => {
       if (box.kind === "wall") {
-        const m = track(new THREE.MeshStandardMaterial({ map: wallTex.clone(), roughness: 0.9 }));
+        // Inside the walkthrough, walls are painted plaster — siding
+        // belongs on the outside of a house, not in the hallway.
         const len = Math.max(box.w, box.d);
+        if (mode === "walk") {
+          const m = track(new THREE.MeshStandardMaterial({ map: plasterTex.clone(), roughness: 0.94 }));
+          (m.map as THREE.Texture).repeat.set(len / TILE_FT, box.h / TILE_FT);
+          (m.map as THREE.Texture).needsUpdate = true;
+          track(m.map as THREE.Texture);
+          return m;
+        }
+        const m = track(
+          new THREE.MeshStandardMaterial({ map: wallTex.clone(), bumpMap: wallBump.clone(), bumpScale: 0.35, roughness: 0.9 }),
+        );
         (m.map as THREE.Texture).repeat.set(len / TILE_FT, box.h / TILE_FT);
+        (m.bumpMap as THREE.Texture).repeat.set(len / TILE_FT, box.h / TILE_FT);
         (m.map as THREE.Texture).needsUpdate = true;
+        (m.bumpMap as THREE.Texture).needsUpdate = true;
         track(m.map as THREE.Texture);
+        track(m.bumpMap as THREE.Texture);
+        return m;
+      }
+      if (box.kind === "floor") {
+        const m = floorMaterial(box.color);
         return m;
       }
       if (box.kind === "window") return glassMat;
@@ -187,26 +232,64 @@ export function Viewer3D({
       geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
       geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
       geometry.computeVertexNormals();
-      const material = track(new THREE.MeshStandardMaterial({ map: roofTex, roughness: 0.85, side: THREE.DoubleSide }));
+      const material = track(
+        new THREE.MeshStandardMaterial({
+          map: roofTex,
+          bumpMap: roofBump,
+          bumpScale: 0.5,
+          roughness: 0.85,
+          side: THREE.DoubleSide,
+        }),
+      );
       const mesh = new THREE.Mesh(geometry, material);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       scene.add(mesh);
     }
 
-    // Landscaping: low-poly trees and bushes.
+    // Landscaping: varied trees — three canopy tones, multi-lobe crowns.
     const trunkMat = plain("#6d543a", 1);
-    const canopyMat = track(new THREE.MeshStandardMaterial({ color: 0x5d7f46, roughness: 1, flatShading: true }));
+    const canopyMats = [0x5d7f46, 0x4f7038, 0x6b8a50].map((color) =>
+      track(new THREE.MeshStandardMaterial({ color, roughness: 1, flatShading: true })),
+    );
     const bushMat = track(new THREE.MeshStandardMaterial({ color: 0x55763f, roughness: 1, flatShading: true }));
-    for (const tree of scene3d.trees) {
+    scene3d.trees.forEach((tree, ti) => {
+      const canopyMat = canopyMats[ti % canopyMats.length];
       const trunk = new THREE.Mesh(track(new THREE.CylinderGeometry(0.35, 0.55, tree.trunkH, 7)), trunkMat);
       trunk.position.set(tree.x, tree.trunkH / 2, tree.z);
       trunk.castShadow = true;
-      const canopy = new THREE.Mesh(track(new THREE.IcosahedronGeometry(tree.canopyR, 1)), canopyMat);
-      canopy.position.set(tree.x, tree.trunkH + tree.canopyR * 0.7, tree.z);
-      canopy.castShadow = true;
-      scene.add(trunk, canopy);
+      scene.add(trunk);
+      // A crown is lobes, not a ball: one main mass and two offset lobes,
+      // rotated per tree so no two silhouettes repeat side by side.
+      const lobes: [number, number, number, number][] = [
+        [0, 0.75, 0, 1],
+        [0.55, 0.55, 0.2, 0.62],
+        [-0.45, 0.95, -0.3, 0.55],
+      ];
+      const spin = (ti * 2.4) % (Math.PI * 2);
+      for (const [lx, ly, lz, lr] of lobes) {
+        const x = lx * Math.cos(spin) - lz * Math.sin(spin);
+        const z = lx * Math.sin(spin) + lz * Math.cos(spin);
+        const lobe = new THREE.Mesh(track(new THREE.IcosahedronGeometry(tree.canopyR * lr, 1)), canopyMat);
+        lobe.position.set(tree.x + x * tree.canopyR, tree.trunkH + ly * tree.canopyR, tree.z + z * tree.canopyR);
+        lobe.castShadow = true;
+        scene.add(lobe);
+      }
+    });
+    if (mode === "walk") {
+      // Ceilings: a walkthrough without one reads as a movie set. One
+      // plane per room floor, hung just under the storey above.
+      const ceilingMat = track(new THREE.MeshStandardMaterial({ color: 0xf4f1ea, roughness: 0.96 }));
+      for (const box of scene3d.boxes) {
+        if (box.kind !== "floor") continue;
+        const ceiling = new THREE.Mesh(track(new THREE.BoxGeometry(box.w, 0.15, box.d)), ceilingMat);
+        ceiling.position.set(box.x + box.w / 2, box.y + WALL_HEIGHT_FT - 0.2, box.z + box.d / 2);
+        ceiling.receiveShadow = false;
+        ceiling.castShadow = false;
+        scene.add(ceiling);
+      }
     }
+
     for (const bush of scene3d.bushes) {
       const mesh = new THREE.Mesh(track(new THREE.IcosahedronGeometry(bush.r, 1)), bushMat);
       mesh.position.set(bush.x, bush.r * 0.6, bush.z);
