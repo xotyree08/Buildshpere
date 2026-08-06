@@ -85,7 +85,9 @@ export default function FaqPage() {
         </div>
 
         <footer>
-          <span>BUILDSPHERE — onbuildsphere.com</span>
+          <span>
+            BUILDSPHERE — onbuildsphere.com · <Link href="/privacy">Privacy</Link> · <Link href="/terms">Terms</Link>
+          </span>
           <span>{ESTIMATE_RANGE_CLAIM}</span>
         </footer>
       </main>

@@ -211,7 +211,8 @@ export default function Home() {
       <main style={{ paddingTop: 0 }}>
         <footer>
           <span>
-            BUILDSPHERE — onbuildsphere.com · <Link href="/faq">FAQ</Link>
+            BUILDSPHERE — onbuildsphere.com · <Link href="/faq">FAQ</Link> · <Link href="/privacy">Privacy</Link> ·{" "}
+            <Link href="/terms">Terms</Link>
           </span>
           <span>{ESTIMATE_RANGE_CLAIM}</span>
         </footer>
