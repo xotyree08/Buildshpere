@@ -209,6 +209,12 @@ h1, h2, .display {
 }
 .topbar a { color: var(--fg); text-decoration: none; font-weight: 600; border-bottom: 1px solid var(--brass-soft); padding-bottom: 1px; }
 .topbar a:hover { color: var(--brass); }
+/* Button-styled links keep button colors — .topbar a must never paint a
+ * .btn's label ink-on-ink (invisible once the site went light-only). */
+.topbar a.btn { color: var(--bg); border-bottom: 1px solid var(--fg); padding-bottom: 0.7rem; }
+.topbar a.btn:hover { color: #fff; border-bottom-color: var(--brass); }
+.topbar a.btn.secondary { color: var(--fg); border-bottom: 1px solid var(--line); }
+.topbar a.btn.secondary:hover { color: var(--brass); border-bottom-color: var(--brass); }
 table.lineitems {
   width: 100%;
   border-collapse: collapse;
@@ -452,9 +458,9 @@ body::before {
   inset: 0;
   z-index: -1;
   background:
-    radial-gradient(90vmax 70vmax at 12% 6%, rgba(212, 184, 142, 0.10), transparent 52%),
-    radial-gradient(85vmax 65vmax at 88% 30%, rgba(168, 194, 216, 0.09), transparent 52%),
-    radial-gradient(88vmax 68vmax at 55% 95%, rgba(214, 180, 192, 0.08), transparent 52%),
+    radial-gradient(90vmax 70vmax at 12% 6%, rgba(213, 178, 122, 0.26), transparent 55%),
+    radial-gradient(85vmax 65vmax at 88% 30%, rgba(146, 182, 214, 0.22), transparent 55%),
+    radial-gradient(88vmax 68vmax at 55% 95%, rgba(214, 162, 182, 0.20), transparent 55%),
     var(--bg);
   background-size: 200% 200%, 200% 200%, 200% 200%, 100% 100%;
   background-repeat: no-repeat;

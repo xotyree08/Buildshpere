@@ -83,6 +83,15 @@ function programRooms(p: ProgramRequirements, style?: HomeStyle): RoomSpec[] {
   // Porch styles carry their identity in the plan, not just the price.
   if (style && PORCH_STYLES.has(style))
     specs.push({ kind: "outdoor", label: "Front Porch", areaSqft: 120, aspect: 2.5, public: true });
+
+  // A target square footage scales every livable room proportionally —
+  // clamped so rooms never shrink below usable or balloon past sense.
+  if (p.targetSqft && p.targetSqft > 0) {
+    const livable = specs.filter((s) => s.kind !== "garage" && s.kind !== "outdoor");
+    const base = livable.reduce((sum, s) => sum + s.areaSqft, 0);
+    const scale = Math.min(1.8, Math.max(0.65, p.targetSqft / base));
+    for (const s of livable) s.areaSqft = Math.round(s.areaSqft * scale);
+  }
   return specs;
 }
 

@@ -29,6 +29,7 @@ export default function NewProjectPage() {
   const [region, setRegion] = useState("US_NATIONAL");
   const [lotWidth, setLotWidth] = useState("60");
   const [lotDepth, setLotDepth] = useState("120");
+  const [targetSqft, setTargetSqft] = useState("");
   const [familySize, setFamilySize] = useState("4");
   const [bedrooms, setBedrooms] = useState("3");
   const [bathrooms, setBathrooms] = useState("2");
@@ -60,6 +61,7 @@ export default function NewProjectPage() {
       projectId,
       version: 1,
       program: {
+        targetSqft: targetSqft.trim() === "" ? undefined : numField(targetSqft, { min: 600, max: 12000, fallback: 0 }) || undefined,
         familySize: numField(familySize, { min: 1, max: 12, fallback: 4 }),
         bedrooms: numField(bedrooms, { min: 1, max: 8, fallback: 3 }),
         // Halves are real programs ("2.5 bath") — snap to the nearest 0.5.
@@ -143,6 +145,18 @@ export default function NewProjectPage() {
           <label className="field">
             <span>Lot depth (ft)</span>
             <input type="number" min={40} value={lotDepth} onChange={(e) => setLotDepth(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>Target sqft (optional)</span>
+            <input
+              type="number"
+              min={600}
+              max={12000}
+              step={50}
+              placeholder="auto"
+              value={targetSqft}
+              onChange={(e) => setTargetSqft(e.target.value)}
+            />
           </label>
         </div>
 
