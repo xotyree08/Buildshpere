@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 
 import { featureLabel, type InspirationAnalysis } from "@/lib/engine/inspiration";
+import { ROOFING, SIDING } from "@/lib/catalog/materials";
 import { styleInfo } from "@/lib/catalog/styles";
 
 export interface InspirationResult {
@@ -127,6 +128,18 @@ export function InspirationUpload({
               ({Math.round(analysis!.confidence * 100)}% match) ·{" "}
               {analysis!.levels === 2 ? "two-story" : "single-story"}
               {analysis!.features.length > 0 && <> · {analysis!.features.map(featureLabel).join(", ")}</>}
+              {(analysis!.sidingKey || analysis!.roofingKey) && (
+                <>
+                  {" "}
+                  · materials applied:{" "}
+                  {[
+                    SIDING.find((s) => s.key === analysis!.sidingKey)?.label,
+                    ROOFING.find((r) => r.key === analysis!.roofingKey)?.label,
+                  ]
+                    .filter(Boolean)
+                    .join(" + ")}
+                </>
+              )}
               {analysis!.notes && (
                 <>
                   <br />

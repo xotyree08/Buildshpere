@@ -7,7 +7,7 @@
  */
 
 import type { FinishSelections } from "../catalog/materials";
-import { defaultSchemeFor, furnitureForModel, schemeByKey, type InteriorScheme } from "../engine/interiors";
+import { defaultSchemeFor, furnitureForModel, schemeByKey, type FurnitureItem, type InteriorScheme } from "../engine/interiors";
 import { roofFor } from "../engine/roof";
 import { WALL_HEIGHT_FT } from "../engine/iso";
 import type { HomeStyle, ParametricModel, Room } from "../types";
@@ -170,6 +170,91 @@ function cutWallBox(box: Box3, alongX: boolean, cuts: WallCut[]): Box3[] {
   return out;
 }
 
+const MATTRESS = "#f2eee6";
+const PILLOW = "#faf8f2";
+const COUNTER_TOP = "#eae6dc";
+
+/**
+ * Expand one staged furniture footprint into composite parts. Everything
+ * stays inside the item's own footprint (the layout engine already
+ * guaranteed clearances), so no part can clip a wall or a door swing.
+ */
+function furnitureParts(item: FurnitureItem, base: number, scheme: InteriorScheme): Box3[] {
+  const { x, z, w, d, h } = item;
+  const tone = scheme[item.tone];
+  const wood = scheme.wood;
+  const furn = (bx: number, by: number, bz: number, bw: number, bh: number, bd: number, color: string): Box3 => ({
+    x: bx, y: base + by, z: bz, w: bw, h: bh, d: bd, color, kind: "furn",
+  });
+  const legs = (height: number, inset = 0.25, thick = 0.22): Box3[] => [
+    furn(x + inset, 0, z + inset, thick, height, thick, wood),
+    furn(x + w - inset - thick, 0, z + inset, thick, height, thick, wood),
+    furn(x + inset, 0, z + d - inset - thick, thick, height, thick, wood),
+    furn(x + w - inset - thick, 0, z + d - inset - thick, thick, height, thick, wood),
+  ];
+  const kind = item.key.split("-").pop() ?? "";
+
+  switch (kind) {
+    case "bed": {
+      // Headboard on the window (north) wall, mattress inset on a platform.
+      return [
+        furn(x, 0, z, w, 1.1, d, wood), // platform
+        furn(x + 0.25, 1.1, z + 0.6, w - 0.5, 0.85, d - 0.85, MATTRESS),
+        furn(x - 0.1, 0, z, w + 0.2, 3.9, 0.35, tone), // headboard
+        furn(x + w * 0.16, 1.95, z + 0.75, w * 0.28, 0.45, 1.1, PILLOW),
+        furn(x + w * 0.56, 1.95, z + 0.75, w * 0.28, 0.45, 1.1, PILLOW),
+      ];
+    }
+    case "sofa": // long axis along z, back against the west wall
+      return [
+        furn(x, 0, z, w, 1.0, d, tone),
+        furn(x + 0.55, 1.0, z + 0.55, w - 0.8, 0.65, d - 1.1, shade(tone, 1.08)),
+        furn(x, 0.9, z, 0.65, 1.9, d, tone), // back
+        furn(x, 0.9, z, w, 1.35, 0.55, tone), // arm
+        furn(x, 0.9, z + d - 0.55, w, 1.35, 0.55, tone), // arm
+      ];
+    case "sectional": // long axis along x, back at the south (screen-facing) edge
+      return [
+        furn(x, 0, z, w, 1.0, d, tone),
+        furn(x + 0.55, 1.0, z + 0.3, w - 1.1, 0.65, d - 0.9, shade(tone, 1.08)),
+        furn(x, 0.9, z + d - 0.65, w, 1.9, 0.65, tone),
+        furn(x, 0.9, z, 0.55, 1.35, d, tone),
+        furn(x + w - 0.55, 0.9, z, 0.55, 1.35, d, tone),
+      ];
+    case "chair":
+      return [
+        furn(x, 0, z, w, 1.1, d, tone),
+        furn(x + 0.3, 1.1, z + 0.3, w - 0.6, 0.5, d - 0.6, shade(tone, 1.08)),
+        furn(x, 0.9, z, w, 1.6, 0.5, tone),
+      ];
+    case "coffee":
+      return [furn(x, 1.25, z, w, 0.22, d, wood), ...legs(1.25)];
+    case "table":
+      return [furn(x, 2.3, z, w, 0.22, d, wood), ...legs(2.3, 0.5, 0.3)];
+    case "desk":
+      return [furn(x, 2.3, z, w, 0.18, d, wood), ...legs(2.3, 0.2)];
+    case "media":
+    case "dresser":
+    case "vanity":
+      return [
+        furn(x, 0.5, z, w, item.h - 0.6, d, tone === wood ? wood : tone),
+        furn(x - 0.05, item.h - 0.12, z - 0.05, w + 0.1, 0.12, d + 0.1, shade(wood, 0.85)),
+        ...legs(0.5, 0.15, 0.18),
+      ];
+    case "ns1":
+    case "ns2":
+      return [furn(x, 0.4, z, w, h - 0.4, d, wood), ...legs(0.4, 0.1, 0.15)];
+    case "island":
+    case "counter":
+      return [
+        furn(x + 0.1, 0, z + 0.1, w - 0.2, h - 0.15, d - 0.2, tone),
+        furn(x, h - 0.15, z, w, 0.15, d, COUNTER_TOP),
+      ];
+    default:
+      return [furn(x, 0, z, w, h, d, tone)];
+  }
+}
+
 function wallBoxes(room: Room, base: number, height: number, color: string, cuts: WallCut[]): Box3[] {
   const [x, z, w, d] = room.rect;
   const walls: { box: Box3; alongX: boolean }[] = [
@@ -197,21 +282,14 @@ export function buildScene3D(
   const cuts = collectCuts(model);
 
   // Staged furniture in the scheme's tones — the walk mode walks a
-  // furnished home, not an empty shell.
+  // furnished home, not an empty shell. Each piece expands into
+  // composite parts (frames, cushions, legs) so it reads as furniture,
+  // not cargo.
   const scheme: InteriorScheme = schemeByKey(interiorScheme) ?? defaultSchemeFor(style);
   for (const item of furnitureForModel(model)) {
     const room = model.rooms.find((r) => item.key.startsWith(`${r.key}-`));
     const base = (room?.level ?? 0) * WALL_HEIGHT_FT;
-    boxes.push({
-      x: item.x,
-      y: base,
-      z: item.z,
-      w: item.w,
-      h: item.h,
-      d: item.d,
-      color: scheme[item.tone],
-      kind: "furn",
-    });
+    boxes.push(...furnitureParts(item, base, scheme));
   }
 
   for (const room of model.rooms) {

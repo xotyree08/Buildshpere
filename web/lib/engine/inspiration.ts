@@ -6,6 +6,7 @@
  * engines — the photo influences the brief, never the math.
  */
 
+import { ROOFING, SIDING } from "../catalog/materials";
 import { STYLES, styleInfo } from "../catalog/styles";
 import type { HomeStyle } from "../types";
 
@@ -41,6 +42,10 @@ export interface InspirationAnalysis {
   features: InspirationFeature[];
   /** One-sentence description of the home's character, for display. */
   notes: string;
+  /** Closest siding option from the catalog, or null when unclear. */
+  sidingKey: string | null;
+  /** Closest roofing option from the catalog, or null when unclear. */
+  roofingKey: string | null;
 }
 
 /**
@@ -76,8 +81,16 @@ export const ANALYSIS_SCHEMA = {
       type: "string",
       description: "One sentence describing the home's architectural character.",
     },
+    sidingKey: {
+      anyOf: [{ type: "string", enum: SIDING.map((s) => s.key) }, { type: "null" }],
+      description: "Closest match for the visible primary siding material, or null if unclear.",
+    },
+    roofingKey: {
+      anyOf: [{ type: "string", enum: ROOFING.map((r) => r.key) }, { type: "null" }],
+      description: "Closest match for the visible roofing material, or null if unclear.",
+    },
   },
-  required: ["styleKey", "secondaryStyleKey", "confidence", "levels", "features", "notes"],
+  required: ["styleKey", "secondaryStyleKey", "confidence", "levels", "features", "notes", "sidingKey", "roofingKey"],
   additionalProperties: false,
 } as const;
 
@@ -99,6 +112,11 @@ export function validateAnalysis(raw: unknown): InspirationAnalysis {
 
   const notes = typeof r.notes === "string" ? r.notes.slice(0, 300) : "";
 
+  // Materials clamp to the real catalog — an unknown key becomes null,
+  // never a guess (the photo influences selections, not the price book).
+  const sidingKey = SIDING.some((s) => s.key === r.sidingKey) ? (r.sidingKey as string) : null;
+  const roofingKey = ROOFING.some((o) => o.key === r.roofingKey) ? (r.roofingKey as string) : null;
+
   return {
     styleKey: style?.key ?? null,
     secondaryStyleKey: secondary?.key && secondary.key !== style?.key ? secondary.key : null,
@@ -106,6 +124,8 @@ export function validateAnalysis(raw: unknown): InspirationAnalysis {
     levels,
     features,
     notes,
+    sidingKey,
+    roofingKey,
   };
 }
 

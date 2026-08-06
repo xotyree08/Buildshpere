@@ -41,6 +41,16 @@ export default function NewProjectPage() {
   function handleInspiration(result: InspirationResult) {
     setInspiration(result);
     if (result.analysis?.styleKey) setStyle(result.analysis.styleKey);
+    // Detected materials preselect the matching catalog options, so the
+    // drawings and 3D wear the photo's skin. Still editable below.
+    const a = result.analysis;
+    if (a && (a.sidingKey || a.roofingKey)) {
+      setFinishes((f) => ({
+        ...f,
+        ...(a.sidingKey ? { siding: a.sidingKey } : {}),
+        ...(a.roofingKey ? { roofing: a.roofingKey } : {}),
+      }));
+    }
   }
   const [office, setOffice] = useState(false);
   const [gym, setGym] = useState(false);
