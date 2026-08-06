@@ -134,6 +134,13 @@ create table if not exists error_reports (
   created_at timestamp not null
 );
 create index if not exists error_reports_created on error_reports(created_at);
+
+create table if not exists metrics_daily (
+  day text not null,
+  path text not null,
+  hits integer not null,
+  primary key (day, path)
+);
 `;
 
 /** Minimal query surface both pg.Pool and the test engine satisfy. */
@@ -247,6 +254,17 @@ export async function ensureSchema(db: Db): Promise<void> {
   );
   if (errors.rows.length === 0) {
     const start = SCHEMA_SQL.indexOf("create table if not exists error_reports");
+    const end = SCHEMA_SQL.indexOf("create table if not exists metrics_daily");
+    for (const statement of SCHEMA_SQL.slice(start, end).split(";")) {
+      const sql = statement.trim();
+      if (sql) await db.query(sql);
+    }
+  }
+  const metrics = await db.query(
+    "select 1 from information_schema.tables where table_name = 'metrics_daily'",
+  );
+  if (metrics.rows.length === 0) {
+    const start = SCHEMA_SQL.indexOf("create table if not exists metrics_daily");
     for (const statement of SCHEMA_SQL.slice(start).split(";")) {
       const sql = statement.trim();
       if (sql) await db.query(sql);

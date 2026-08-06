@@ -31,6 +31,7 @@ const SECTIONS: [string, string[]][] = [
       "If you invite a professional to review a plan, we store the review record: their self-reported name, discipline, license details, and their comments, attached to your project.",
       "If you subscribe through the mobile apps, Apple or Google processes the payment. We receive and store the purchase receipt to activate your subscription — never your card number.",
       "We keep an append-only audit log of security-relevant events (sign-ins, shares, deletions, purchases) to protect your account, and technical error reports (what broke and in which browser) to fix failures. Error reports are not tied to your projects' contents.",
+      "We count page views in aggregate: one counter per page per day. No cookies, no IP addresses, no identifiers — a count literally cannot describe a person, and browsers sending Do Not Track aren't counted at all.",
     ],
   ],
   [

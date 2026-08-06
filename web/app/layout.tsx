@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 import { ErrorReporter } from "@/components/ErrorReporter";
+import { PageBeacon } from "@/components/PageBeacon";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://onbuildsphere.com"),
@@ -23,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <ErrorReporter />
+        <PageBeacon />
         {children}
       </body>
     </html>
