@@ -11,6 +11,9 @@ async function generateProject(page: Page): Promise<void> {
   await page.goto("/app/new");
   await page.locator('button[type="submit"]').click();
   await page.waitForURL(/\/app\/project\//, { timeout: 30_000 });
+  // The project page renders client-side after the URL changes; wait for a
+  // concept card before asserting on content (CI runners are slower than dev).
+  await page.getByText("The Courtyard").first().waitFor({ timeout: 30_000 });
 }
 
 test("interview defaults generate three priced, health-checked concepts", async ({ page }) => {
@@ -34,7 +37,7 @@ test("erasing a number field leaves it empty, and an empty budget falls back", a
   await budget.press("Backspace");
   await page.locator('button[type="submit"]').click();
   await page.waitForURL(/\/app\/project\//, { timeout: 30_000 });
-  expect(await page.textContent("body")).toContain("450,000"); // default budget applied
+  await expect(page.locator("body")).toContainText("450,000", { timeout: 30_000 }); // default budget applied
 });
 
 test("bid package: trade sheets with scopes, owner budget kept out of print", async ({ page }) => {
@@ -53,7 +56,7 @@ test("construction schedule: gantt, milestones, draws reconciling to 100%", asyn
   await generateProject(page);
   await page.getByRole("link", { name: "Schedule" }).click();
   await page.waitForURL(/\/schedule/);
-  expect(await page.locator("svg[aria-label='Construction timeline'] rect").count()).toBe(10);
+  await expect(page.locator("svg[aria-label='Construction timeline'] rect")).toHaveCount(10, { timeout: 30_000 });
   const body = await page.textContent("body");
   expect(body).toMatch(/About \d+ weeks/);
   expect(body).toContain("100%");
@@ -65,10 +68,11 @@ test("maintenance plan follows the chosen materials", async ({ page }) => {
   await page.locator('label:has-text("Roofing") select').selectOption("cedar_shake");
   await page.locator('button[type="submit"]').click();
   await page.waitForURL(/\/app\/project\//, { timeout: 30_000 });
+  await page.getByText("The Courtyard").first().waitFor({ timeout: 30_000 });
   await page.getByRole("link", { name: "Maintenance" }).click();
   await page.waitForURL(/\/maintenance/);
+  await expect(page.locator("body")).toContainText("Treat shakes", { timeout: 30_000 }); // cedar-specific task
   const body = await page.textContent("body");
-  expect(body).toContain("Treat shakes"); // cedar-specific task
   expect(body).toContain("Professional HVAC service"); // universal system
   expect(body).toContain("30-year care plan");
 });
