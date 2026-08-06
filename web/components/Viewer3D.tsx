@@ -37,7 +37,13 @@ export function Viewer3D({
   interiorScheme?: string;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
+  const captureRef = useRef<(() => string) | null>(null);
   const [ready, setReady] = useState(false);
+  const [still, setStill] = useState<{ busy: boolean; image: string | null; error: string | null }>({
+    busy: false,
+    image: null,
+    error: null,
+  });
   const [mode, setMode] = useState<"orbit" | "walk">("orbit");
   const [level, setLevel] = useState(0);
 
@@ -383,6 +389,12 @@ export function Viewer3D({
       }
     };
 
+    // Fresh frame, then read the canvas — no preserveDrawingBuffer needed.
+    captureRef.current = () => {
+      renderer.render(scene, camera);
+      return renderer.domElement.toDataURL("image/jpeg", 0.92);
+    };
+
     const resize = () => {
       const width = mount.clientWidth;
       const height = Math.max(280, Math.round(width * 0.62));
@@ -403,10 +415,32 @@ export function Viewer3D({
       sky.material.dispose();
       sky.geometry.dispose();
       for (const disp of disposables) disp.dispose();
+      captureRef.current = null;
       renderer.dispose();
       mount.removeChild(renderer.domElement);
     };
   }, [model, style, finishes, interiorScheme, mode, level]);
+
+  async function photoreal() {
+    const capture = captureRef.current;
+    if (!capture) return;
+    setStill({ busy: true, image: null, error: null });
+    try {
+      const res = await fetch("/api/v1/render/photoreal", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ imageDataUrl: capture(), style, finishes }),
+      });
+      const body = (await res.json()) as { imageDataUrl?: string; error?: string };
+      if (!res.ok || !body.imageDataUrl) {
+        setStill({ busy: false, image: null, error: body.error ?? "The render failed — try again." });
+        return;
+      }
+      setStill({ busy: false, image: body.imageDataUrl, error: null });
+    } catch {
+      setStill({ busy: false, image: null, error: "Could not reach the server — check your connection." });
+    }
+  }
 
   return (
     <div>
@@ -426,6 +460,15 @@ export function Viewer3D({
           onClick={() => setMode("walk")}
         >
           Walk inside
+        </button>
+        <button
+          className="btn secondary"
+          style={{ padding: "0.25rem 0.8rem", fontSize: "0.8rem" }}
+          type="button"
+          disabled={still.busy || !ready}
+          onClick={() => void photoreal()}
+        >
+          {still.busy ? "Rendering…" : "Photoreal still"}
         </button>
         {mode === "walk" && model.levels > 1 && (
           <span style={{ display: "inline-flex", gap: "0.35rem" }}>
@@ -472,9 +515,38 @@ export function Viewer3D({
       </div>
       <p style={{ margin: "0.25rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>
         {mode === "orbit"
-          ? "Drag to orbit · scroll to zoom · right-drag to pan. Real-time preview with your selected materials — photorealistic still renders arrive with the ModelSphere pipeline."
+          ? "Drag to orbit · scroll to zoom · right-drag to pan. Real-time preview with your selected materials — Photoreal still turns the current view into an architectural photo."
           : "Drag to look around · WASD/arrow keys or the ▲▼ buttons to move. Walls stop you; doorways don't — walk the real plan."}
       </p>
+      {still.error && (
+        <p className="status-warn" style={{ marginTop: "0.5rem" }}>
+          {still.error}
+        </p>
+      )}
+      {still.image && (
+        <div style={{ marginTop: "0.6rem" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={still.image}
+            alt="Photoreal rendering of this concept"
+            style={{ width: "100%", borderRadius: 8, border: "1px solid var(--line)" }}
+          />
+          <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.35rem 0 0", display: "flex", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
+            <span>
+              AI-interpreted photograph of this concept — the plans and estimate, not this image,
+              are the source of truth.
+            </span>
+            <a
+              className="btn secondary"
+              style={{ padding: "0.2rem 0.7rem", fontSize: "0.8rem" }}
+              href={still.image}
+              download="buildsphere-photoreal.jpg"
+            >
+              Download
+            </a>
+          </p>
+        </div>
+      )}
     </div>
   );
 }
