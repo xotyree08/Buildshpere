@@ -72,7 +72,9 @@ export async function POST(req: Request) {
                 STYLE_GUIDE +
                 "\n\nReport visible stories as levels (1 or 2 — count 3+ as 2), exterior features you can " +
                 "actually see, your confidence 0-1 in the primary style, and one sentence of notes describing " +
-                "the character a designer should aim for. If the image is not a home exterior, use confidence 0.",
+                "the character a designer should aim for. Also pick sidingKey and roofingKey — the CLOSEST " +
+                "matches for the visible primary siding and roofing materials from the schema's options — or " +
+                "null when you can't tell. If the image is not a home exterior, use confidence 0.",
             },
           ],
         },

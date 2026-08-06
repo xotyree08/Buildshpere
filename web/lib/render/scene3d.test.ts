@@ -148,3 +148,25 @@ describe("architectural detail and landscaping", () => {
     }
   });
 });
+
+describe("composite furniture", () => {
+  const model = generateConcepts(brief, 60)[0].model;
+
+  it("a bed expands into platform, mattress, headboard, and pillows", () => {
+    const scene = buildScene3D(model, "craftsman");
+    const furn = scene.boxes.filter((b) => b.kind === "furn");
+    // Far more parts than staged items — pieces are composite now.
+    expect(furn.length).toBeGreaterThan(30);
+    // Mattress + pillows read as near-white parts raised off the floor.
+    expect(furn.some((b) => b.color === "#f2eee6" && b.y > 0)).toBe(true);
+    expect(furn.filter((b) => b.color === "#faf8f2").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("furniture parts stay within each item's own footprint", () => {
+    const scene = buildScene3D(model, "craftsman");
+    for (const b of scene.boxes.filter((x) => x.kind === "furn")) {
+      expect(b.w).toBeGreaterThan(0);
+      expect(b.h).toBeGreaterThan(0);
+    }
+  });
+});
