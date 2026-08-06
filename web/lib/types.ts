@@ -74,6 +74,8 @@ export interface ProgramRequirements {
   theater: boolean;
   outdoorKitchen: boolean;
   garageBays: number;
+  /** Desired livable square footage; absent = sized from the program. */
+  targetSqft?: number;
 }
 
 export interface InteriorPreferences {

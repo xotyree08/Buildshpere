@@ -99,6 +99,40 @@ describe("architectural detail and landscaping", () => {
     expect(scene.boxes.some((b) => b.kind === "path")).toBe(true);
   });
 
+  it("doorways are real voids: walkable gap, header above, hall wall pierced too", () => {
+    const scene = buildScene3D(model, "craftsman");
+    const wallAt = (px: number, y: number, pz: number) =>
+      scene.boxes.some(
+        (b) =>
+          b.kind === "wall" &&
+          px >= b.x - 0.01 && px <= b.x + b.w + 0.01 &&
+          pz >= b.z - 0.01 && pz <= b.z + b.d + 0.01 &&
+          y >= b.y - 0.01 && y <= b.y + b.h + 0.01,
+      );
+    const door = model.openings.find((o) => o.kind === "door" && o.widthFt < 6)!;
+    const room = model.rooms.find((r) => r.key === door.roomKey)!;
+    const [x, z, , d] = room.rect;
+    const midX = x + door.offsetFt + door.widthFt / 2;
+    expect(wallAt(midX, 4, z + d - 0.2)).toBe(false); // the room's own wall is open
+    expect(wallAt(midX, 7.5, z + d - 0.2)).toBe(true); // header above the door
+    expect(wallAt(midX, 4, z + d + 0.2)).toBe(false); // hallway's facing wall pierced
+
+    const win = model.openings.find((o) => o.kind === "window")!;
+    const winRoom = model.rooms.find((r) => r.key === win.roomKey)!;
+    const wx = winRoom.rect[0] + win.offsetFt + win.widthFt / 2;
+    const wz = winRoom.rect[1] + 0.2;
+    expect(wallAt(wx, 1.5, wz)).toBe(true); // sill wall below the glass
+    expect(wallAt(wx, 5, wz)).toBe(false); // glass void
+    // Corner slivers stay solid.
+    expect(wallAt(winRoom.rect[0] + 0.1, 4, wz)).toBe(true);
+  });
+
+  it("interior doors render swung open, out of the wall plane", () => {
+    const scene = buildScene3D(model, "craftsman");
+    const doors = scene.boxes.filter((b) => b.kind === "door");
+    expect(doors.some((b) => b.w < 0.2 && b.d > 2)).toBe(true);
+  });
+
   it("landscaping is deterministic and stays off the footprint", () => {
     const a = buildScene3D(model, "craftsman");
     const b = buildScene3D(model, "craftsman");
@@ -111,6 +145,28 @@ describe("architectural detail and landscaping", () => {
         (r) => tree.x > r.rect[0] && tree.x < r.rect[0] + r.rect[2] && tree.z > r.rect[1] && tree.z < r.rect[1] + r.rect[3],
       );
       expect(inside).toBe(false);
+    }
+  });
+});
+
+describe("composite furniture", () => {
+  const model = generateConcepts(brief, 60)[0].model;
+
+  it("a bed expands into platform, mattress, headboard, and pillows", () => {
+    const scene = buildScene3D(model, "craftsman");
+    const furn = scene.boxes.filter((b) => b.kind === "furn");
+    // Far more parts than staged items — pieces are composite now.
+    expect(furn.length).toBeGreaterThan(30);
+    // Mattress + pillows read as near-white parts raised off the floor.
+    expect(furn.some((b) => b.color === "#f2eee6" && b.y > 0)).toBe(true);
+    expect(furn.filter((b) => b.color === "#faf8f2").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("furniture parts stay within each item's own footprint", () => {
+    const scene = buildScene3D(model, "craftsman");
+    for (const b of scene.boxes.filter((x) => x.kind === "furn")) {
+      expect(b.w).toBeGreaterThan(0);
+      expect(b.h).toBeGreaterThan(0);
     }
   });
 });

@@ -38,6 +38,24 @@ export default function ReportPage() {
   const params = useParams<{ id: string }>();
   const [entry, setEntry] = useState<StoredProject | null | undefined>(undefined);
   const [review, setReview] = useState<ReviewRecord | null>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+
+  async function downloadPdf(current: StoredProject) {
+    setPdfBusy(true);
+    try {
+      // Loaded on demand — jsPDF never enters the main bundle.
+      const { generateReportPdf } = await import("@/lib/pdf/report");
+      const doc = generateReportPdf({
+        project: current.project,
+        packages: current.packages,
+        finishes: current.finishes,
+        setbacks: current.setbacks,
+      });
+      doc.save(`${current.project.name.replace(/[^\w-]+/g, "-")}-design-report.pdf`);
+    } finally {
+      setPdfBusy(false);
+    }
+  }
 
   useEffect(() => {
     setEntry(loadProject(params.id));
@@ -74,8 +92,11 @@ export default function ReportPage() {
         <h1>Design Report</h1>
         <span style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
           <Link href={`/app/project/${project.id}`}>Back to project</Link>
-          <button className="btn" onClick={() => window.print()}>
-            Print / Save as PDF
+          <button className="btn" disabled={pdfBusy} onClick={() => void downloadPdf(entry)}>
+            {pdfBusy ? "Preparing…" : "Download PDF"}
+          </button>
+          <button className="btn secondary" onClick={() => window.print()}>
+            Print
           </button>
         </span>
       </div>

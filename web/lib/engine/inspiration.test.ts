@@ -76,3 +76,27 @@ describe("featureLabel", () => {
     expect(featureLabel("board_and_batten")).toBe("Board And Batten");
   });
 });
+
+describe("material detection clamping", () => {
+  it("valid catalog materials pass through; unknown ones become null", () => {
+    const good = validateAnalysis({
+      styleKey: "craftsman", secondaryStyleKey: null, confidence: 0.9, levels: 1,
+      features: [], notes: "", sidingKey: "brick_veneer", roofingKey: "metal_standing_seam",
+    });
+    expect(good.sidingKey).toBe("brick_veneer");
+    expect(good.roofingKey).toBe("metal_standing_seam");
+
+    const bad = validateAnalysis({
+      styleKey: "craftsman", secondaryStyleKey: null, confidence: 0.9, levels: 1,
+      features: [], notes: "", sidingKey: "unobtainium", roofingKey: 42,
+    });
+    expect(bad.sidingKey).toBeNull();
+    expect(bad.roofingKey).toBeNull();
+  });
+
+  it("absent material fields (older payloads) clamp to null", () => {
+    const a = validateAnalysis({ styleKey: "modern", secondaryStyleKey: null, confidence: 1, levels: 1, features: [], notes: "" });
+    expect(a.sidingKey).toBeNull();
+    expect(a.roofingKey).toBeNull();
+  });
+});

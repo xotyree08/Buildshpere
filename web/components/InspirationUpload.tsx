@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 
 import { featureLabel, type InspirationAnalysis } from "@/lib/engine/inspiration";
+import { ROOFING, SIDING } from "@/lib/catalog/materials";
 import { styleInfo } from "@/lib/catalog/styles";
 
 export interface InspirationResult {
@@ -86,7 +87,8 @@ export function InspirationUpload({
   return (
     <div style={{ marginBottom: "1rem" }}>
       <span style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
-        Inspiration photo (optional) — upload a home you love and we'll match its style
+        Inspiration photo (optional) — we read its style and design a <em>new</em> home in that
+        spirit for your rooms and lot. The drawings won&apos;t reproduce the photo.
       </span>
       <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start", marginTop: "0.35rem" }}>
         <button
@@ -126,12 +128,29 @@ export function InspirationUpload({
               ({Math.round(analysis!.confidence * 100)}% match) ·{" "}
               {analysis!.levels === 2 ? "two-story" : "single-story"}
               {analysis!.features.length > 0 && <> · {analysis!.features.map(featureLabel).join(", ")}</>}
+              {(analysis!.sidingKey || analysis!.roofingKey) && (
+                <>
+                  {" "}
+                  · materials applied:{" "}
+                  {[
+                    SIDING.find((s) => s.key === analysis!.sidingKey)?.label,
+                    ROOFING.find((r) => r.key === analysis!.roofingKey)?.label,
+                  ]
+                    .filter(Boolean)
+                    .join(" + ")}
+                </>
+              )}
               {analysis!.notes && (
                 <>
                   <br />
                   <span style={{ color: "var(--muted)" }}>{analysis!.notes}</span>
                 </>
               )}
+              <br />
+              <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>
+                Your concepts will be new designs in this style, sized to your program — not a
+                copy of the photo.
+              </span>
             </p>
           )}
           {status === "done" && !detected && (

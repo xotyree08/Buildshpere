@@ -75,7 +75,8 @@ export function takeoff(model: ParametricModel): Quantities {
     if (r.kind === "garage") garageSqft += a;
     else if (r.kind === "outdoor") outdoorSqft += a;
     else livableSqft += a;
-    if (r.kind === "bathroom") baths++;
+    // A powder room prices as half a bath — real rough-in, fewer fixtures.
+    if (r.kind === "bathroom") baths += /powder/i.test(r.label) ? 0.5 : 1;
     if (r.kind === "kitchen") kitchens++;
   }
 

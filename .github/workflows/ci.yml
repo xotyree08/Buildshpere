@@ -1,5 +1,5 @@
 # CI for every PR and main push (spec §17 Definition of Done: acceptance
-# automated; §18 CI/CD). Two independent jobs so a Flutter toolchain hiccup
+# automated; §18 CI/CD). Independent jobs so a Flutter toolchain hiccup
 # never blocks a web-only change from getting its verdict.
 name: CI
 
@@ -27,6 +27,24 @@ jobs:
       - run: npx tsc --noEmit
       - run: npx vitest run
       - run: npm run build
+
+  e2e:
+    name: End-to-end (Playwright)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm run e2e
 
   mobile:
     name: Mobile (analyze, tests)

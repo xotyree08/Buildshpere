@@ -7,6 +7,7 @@
  */
 
 import type { FinishSelections } from "../catalog/materials";
+import { defaultSchemeFor, furnitureForModel, schemeByKey, type FurnitureItem, type InteriorScheme } from "../engine/interiors";
 import { roofFor } from "../engine/roof";
 import { WALL_HEIGHT_FT } from "../engine/iso";
 import type { HomeStyle, ParametricModel, Room } from "../types";
@@ -28,7 +29,7 @@ export interface Box3 {
   h: number;
   d: number;
   color: string;
-  kind: "floor" | "wall" | "window" | "door" | "slab" | "trim" | "plinth" | "drive" | "path" | "stoop";
+  kind: "floor" | "wall" | "window" | "door" | "slab" | "trim" | "plinth" | "drive" | "path" | "stoop" | "furn";
 }
 
 export interface Prism {
@@ -71,24 +72,225 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-function wallBoxes(room: Room, base: number, height: number, color: string): Box3[] {
-  const [x, z, w, d] = room.rect;
-  return [
-    { x, y: base, z, w, h: height, d: WALL_T, color, kind: "wall" }, // north (street side)
-    { x, y: base, z: z + d - WALL_T, w, h: height, d: WALL_T, color, kind: "wall" }, // south
-    { x, y: base, z, w: WALL_T, h: height, d, color, kind: "wall" }, // west
-    { x: x + w - WALL_T, y: base, z, w: WALL_T, h: height, d, color, kind: "wall" }, // east
+/** A void to cut through a wall: world-space span along the wall's axis. */
+interface WallCut {
+  axis: "x" | "z";
+  /** Centerline of the wall the opening lives in. */
+  plane: number;
+  from: number;
+  to: number;
+  y0: number;
+  y1: number;
+}
+
+/**
+ * Every opening becomes a real void so the interior is walkable: doors
+ * and passages cut floor-to-head, windows leave a sill wall below. The
+ * plane tolerance lets a room's doorway also pierce the hallway's facing
+ * wall right behind it — otherwise you'd step through a door into the
+ * back of another wall.
+ */
+function collectCuts(model: ParametricModel): WallCut[] {
+  const cuts: WallCut[] = [];
+  for (const o of model.openings) {
+    const room = model.rooms.find((r) => r.key === o.roomKey);
+    if (!room) continue;
+    const [x, z, w, d] = room.rect;
+    const base = room.level * WALL_HEIGHT_FT;
+    const isWindow = o.kind === "window";
+    const y0 = base + (isWindow ? WINDOW_SILL : 0);
+    const y1 = base + (isWindow ? WINDOW_HEAD : DOOR_HEAD);
+    if (o.wall === "n" || o.wall === "s") {
+      cuts.push({
+        axis: "x",
+        plane: o.wall === "n" ? z + WALL_T / 2 : z + d - WALL_T / 2,
+        from: x + o.offsetFt,
+        to: x + o.offsetFt + o.widthFt,
+        y0,
+        y1,
+      });
+    } else {
+      cuts.push({
+        axis: "z",
+        plane: o.wall === "w" ? x + WALL_T / 2 : x + w - WALL_T / 2,
+        from: z + o.offsetFt,
+        to: z + o.offsetFt + o.widthFt,
+        y0,
+        y1,
+      });
+    }
+  }
+  return cuts;
+}
+
+/** Walls closer than this (centerline to centerline) share an opening. */
+const CUT_PLANE_TOL = 1.0;
+
+/** Split one solid wall box around the voids that pierce it. */
+function cutWallBox(box: Box3, alongX: boolean, cuts: WallCut[]): Box3[] {
+  const lo = alongX ? box.x : box.z;
+  const hi = alongX ? box.x + box.w : box.z + box.d;
+  const relevant = cuts
+    .map((c) => ({ ...c, from: Math.max(c.from, lo), to: Math.min(c.to, hi) }))
+    .filter((c) => c.to - c.from > 0.05 && c.y0 < box.y + box.h && c.y1 > box.y)
+    .sort((a, b) => a.from - b.from);
+  if (relevant.length === 0) return [box];
+
+  // Merge overlapping voids conservatively (largest combined hole).
+  const merged: { from: number; to: number; y0: number; y1: number }[] = [];
+  for (const c of relevant) {
+    const last = merged[merged.length - 1];
+    if (last && c.from < last.to) {
+      last.to = Math.max(last.to, c.to);
+      last.y0 = Math.min(last.y0, c.y0);
+      last.y1 = Math.max(last.y1, c.y1);
+    } else {
+      merged.push({ from: c.from, to: c.to, y0: c.y0, y1: c.y1 });
+    }
+  }
+
+  const out: Box3[] = [];
+  const seg = (from: number, to: number, y: number, h: number) => {
+    if (to - from > 0.05 && h > 0.05) {
+      out.push(
+        alongX
+          ? { ...box, x: from, w: to - from, y, h }
+          : { ...box, z: from, d: to - from, y, h },
+      );
+    }
+  };
+  let cursor = lo;
+  for (const m of merged) {
+    seg(cursor, m.from, box.y, box.h); // solid run before the void
+    seg(m.from, m.to, box.y, m.y0 - box.y); // sill below (windows)
+    seg(m.from, m.to, m.y1, box.y + box.h - m.y1); // header above
+    cursor = m.to;
+  }
+  seg(cursor, hi, box.y, box.h);
+  return out;
+}
+
+const MATTRESS = "#f2eee6";
+const PILLOW = "#faf8f2";
+const COUNTER_TOP = "#eae6dc";
+
+/**
+ * Expand one staged furniture footprint into composite parts. Everything
+ * stays inside the item's own footprint (the layout engine already
+ * guaranteed clearances), so no part can clip a wall or a door swing.
+ */
+function furnitureParts(item: FurnitureItem, base: number, scheme: InteriorScheme): Box3[] {
+  const { x, z, w, d, h } = item;
+  const tone = scheme[item.tone];
+  const wood = scheme.wood;
+  const furn = (bx: number, by: number, bz: number, bw: number, bh: number, bd: number, color: string): Box3 => ({
+    x: bx, y: base + by, z: bz, w: bw, h: bh, d: bd, color, kind: "furn",
+  });
+  const legs = (height: number, inset = 0.25, thick = 0.22): Box3[] => [
+    furn(x + inset, 0, z + inset, thick, height, thick, wood),
+    furn(x + w - inset - thick, 0, z + inset, thick, height, thick, wood),
+    furn(x + inset, 0, z + d - inset - thick, thick, height, thick, wood),
+    furn(x + w - inset - thick, 0, z + d - inset - thick, thick, height, thick, wood),
   ];
+  const kind = item.key.split("-").pop() ?? "";
+
+  switch (kind) {
+    case "bed": {
+      // Headboard on the window (north) wall, mattress inset on a platform.
+      return [
+        furn(x, 0, z, w, 1.1, d, wood), // platform
+        furn(x + 0.25, 1.1, z + 0.6, w - 0.5, 0.85, d - 0.85, MATTRESS),
+        furn(x - 0.1, 0, z, w + 0.2, 3.9, 0.35, tone), // headboard
+        furn(x + w * 0.16, 1.95, z + 0.75, w * 0.28, 0.45, 1.1, PILLOW),
+        furn(x + w * 0.56, 1.95, z + 0.75, w * 0.28, 0.45, 1.1, PILLOW),
+      ];
+    }
+    case "sofa": // long axis along z, back against the west wall
+      return [
+        furn(x, 0, z, w, 1.0, d, tone),
+        furn(x + 0.55, 1.0, z + 0.55, w - 0.8, 0.65, d - 1.1, shade(tone, 1.08)),
+        furn(x, 0.9, z, 0.65, 1.9, d, tone), // back
+        furn(x, 0.9, z, w, 1.35, 0.55, tone), // arm
+        furn(x, 0.9, z + d - 0.55, w, 1.35, 0.55, tone), // arm
+      ];
+    case "sectional": // long axis along x, back at the south (screen-facing) edge
+      return [
+        furn(x, 0, z, w, 1.0, d, tone),
+        furn(x + 0.55, 1.0, z + 0.3, w - 1.1, 0.65, d - 0.9, shade(tone, 1.08)),
+        furn(x, 0.9, z + d - 0.65, w, 1.9, 0.65, tone),
+        furn(x, 0.9, z, 0.55, 1.35, d, tone),
+        furn(x + w - 0.55, 0.9, z, 0.55, 1.35, d, tone),
+      ];
+    case "chair":
+      return [
+        furn(x, 0, z, w, 1.1, d, tone),
+        furn(x + 0.3, 1.1, z + 0.3, w - 0.6, 0.5, d - 0.6, shade(tone, 1.08)),
+        furn(x, 0.9, z, w, 1.6, 0.5, tone),
+      ];
+    case "coffee":
+      return [furn(x, 1.25, z, w, 0.22, d, wood), ...legs(1.25)];
+    case "table":
+      return [furn(x, 2.3, z, w, 0.22, d, wood), ...legs(2.3, 0.5, 0.3)];
+    case "desk":
+      return [furn(x, 2.3, z, w, 0.18, d, wood), ...legs(2.3, 0.2)];
+    case "media":
+    case "dresser":
+    case "vanity":
+      return [
+        furn(x, 0.5, z, w, item.h - 0.6, d, tone === wood ? wood : tone),
+        furn(x - 0.05, item.h - 0.12, z - 0.05, w + 0.1, 0.12, d + 0.1, shade(wood, 0.85)),
+        ...legs(0.5, 0.15, 0.18),
+      ];
+    case "ns1":
+    case "ns2":
+      return [furn(x, 0.4, z, w, h - 0.4, d, wood), ...legs(0.4, 0.1, 0.15)];
+    case "island":
+    case "counter":
+      return [
+        furn(x + 0.1, 0, z + 0.1, w - 0.2, h - 0.15, d - 0.2, tone),
+        furn(x, h - 0.15, z, w, 0.15, d, COUNTER_TOP),
+      ];
+    default:
+      return [furn(x, 0, z, w, h, d, tone)];
+  }
+}
+
+function wallBoxes(room: Room, base: number, height: number, color: string, cuts: WallCut[]): Box3[] {
+  const [x, z, w, d] = room.rect;
+  const walls: { box: Box3; alongX: boolean }[] = [
+    { box: { x, y: base, z, w, h: height, d: WALL_T, color, kind: "wall" }, alongX: true }, // north (street side)
+    { box: { x, y: base, z: z + d - WALL_T, w, h: height, d: WALL_T, color, kind: "wall" }, alongX: true }, // south
+    { box: { x, y: base, z, w: WALL_T, h: height, d, color, kind: "wall" }, alongX: false }, // west
+    { box: { x: x + w - WALL_T, y: base, z, w: WALL_T, h: height, d, color, kind: "wall" }, alongX: false }, // east
+  ];
+  return walls.flatMap(({ box, alongX }) => {
+    const plane = alongX ? box.z + box.d / 2 : box.x + box.w / 2;
+    const near = cuts.filter((c) => (c.axis === "x") === alongX && Math.abs(c.plane - plane) < CUT_PLANE_TOL);
+    return cutWallBox(box, alongX, near);
+  });
 }
 
 export function buildScene3D(
   model: ParametricModel,
   style?: HomeStyle,
   finishes?: FinishSelections,
+  interiorScheme?: string,
 ): Scene3D {
   const palette = exteriorPalette(finishes);
   const boxes: Box3[] = [];
   const roofs: Prism[] = [];
+  const cuts = collectCuts(model);
+
+  // Staged furniture in the scheme's tones — the walk mode walks a
+  // furnished home, not an empty shell. Each piece expands into
+  // composite parts (frames, cushions, legs) so it reads as furniture,
+  // not cargo.
+  const scheme: InteriorScheme = schemeByKey(interiorScheme) ?? defaultSchemeFor(style);
+  for (const item of furnitureForModel(model)) {
+    const room = model.rooms.find((r) => item.key.startsWith(`${r.key}-`));
+    const base = (room?.level ?? 0) * WALL_HEIGHT_FT;
+    boxes.push(...furnitureParts(item, base, scheme));
+  }
 
   for (const room of model.rooms) {
     const [x, z, w, d] = room.rect;
@@ -110,10 +312,10 @@ export function buildScene3D(
     }
     if (room.kind === "outdoor") {
       // Porch/deck: railing-height perimeter instead of full walls.
-      boxes.push(...wallBoxes(room, base, RAIL_H, palette.trim));
+      boxes.push(...wallBoxes(room, base, RAIL_H, palette.trim, cuts));
       continue;
     }
-    boxes.push(...wallBoxes(room, base, WALL_HEIGHT_FT, palette.wall));
+    boxes.push(...wallBoxes(room, base, WALL_HEIGHT_FT, palette.wall, cuts));
 
     for (const o of model.openings) {
       if (o.roomKey !== room.key || o.kind === "opening") continue;
@@ -127,8 +329,16 @@ export function buildScene3D(
       const h = head - sill;
       const TRIM = 0.35;
       const tt = WALL_T + 0.3; // trim sits proud of the glass
+      // Interior doors render swung open against the room-side wall, so
+      // the doorway itself reads (and walks) open; wide garage doors and
+      // windows stay in the wall plane.
+      const swing = kind === "door" && o.wall === "s" && o.widthFt < 6;
       const pushWithTrim = (bx: number, bz: number, bw: number, bd: number, alongX: boolean) => {
-        boxes.push({ x: bx, y, z: bz, w: bw, h, d: bd, color, kind });
+        if (swing && alongX) {
+          boxes.push({ x: bx + 0.05, y, z: bz - bw, w: 0.15, h, d: bw, color, kind });
+        } else {
+          boxes.push({ x: bx, y, z: bz, w: bw, h, d: bd, color, kind });
+        }
         if (alongX) {
           boxes.push({ x: bx - TRIM, y: y - TRIM, z: bz - 0.05, w: bw + 2 * TRIM, h: TRIM, d: tt, color: palette.trim, kind: "trim" });
           boxes.push({ x: bx - TRIM, y: y + h, z: bz - 0.05, w: bw + 2 * TRIM, h: TRIM, d: tt, color: palette.trim, kind: "trim" });

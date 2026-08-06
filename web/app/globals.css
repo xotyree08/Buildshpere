@@ -1,21 +1,18 @@
 :root {
-  --bg: #fafaf8;
-  --fg: #1c1c1a;
-  --muted: #6b6b66;
-  --card: #ffffff;
-  --line: #e5e5e0;
-  --accent: #1a6e4a;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #141413;
-    --fg: #ececea;
-    --muted: #9c9c96;
-    --card: #1d1d1b;
-    --line: #2c2c29;
-    --accent: #4fae82;
-  }
+  --bg: #f6f4ee;
+  --fg: #211d17;
+  --muted: #7c7568;
+  --card: #fdfcf9;
+  --line: #e2dcce;
+  --accent: #206a48;
+  --brass: #9a7b3f;
+  --brass-soft: #c9a96a;
+  --ink: #17140f;
+  --ivory: #f6f2e8;
+  --display: "Didot", "Playfair Display", "Cormorant Garamond", Georgia, "Times New Roman", serif;
+  /* The ivory pearl palette IS the brand, site-wide — BuildSphere does
+   * not follow system dark mode anywhere. */
+  color-scheme: light;
 }
 
 * {
@@ -28,6 +25,9 @@ body {
   color: var(--fg);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   line-height: 1.55;
+  /* Stacking context so the fixed pearl layer (body::before, z -1) paints
+   * above the body background instead of vanishing behind it. */
+  isolation: isolate;
 }
 
 main {
@@ -36,17 +36,10 @@ main {
   padding: 4rem 1.5rem;
 }
 
-.hero h1 {
-  font-size: 2.5rem;
-  margin: 0 0 0.5rem;
-  letter-spacing: -0.02em;
-}
-
-.hero p {
-  color: var(--muted);
-  font-size: 1.125rem;
-  max-width: 40rem;
-  margin: 0 0 3rem;
+h1, h2, .display {
+  font-family: var(--display);
+  font-weight: 500;
+  letter-spacing: 0.005em;
 }
 
 .grid {
@@ -58,7 +51,7 @@ main {
 .card {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 3px;
   padding: 1.25rem;
 }
 
@@ -100,23 +93,33 @@ main {
   --site-street: #e2e2dd;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --plan-bedroom: #2a3a4a;
-    --plan-bathroom: #26382f;
-    --plan-kitchen: #423527;
-    --plan-living: #3b382e;
-    --plan-office: #35304a;
-    --plan-garage: #2e2e2c;
-    --plan-hall: #262624;
-    --plan-outdoor: #2d3a26;
-    --plan-window: #35506b;
-    --plan-roof: #4a4234;
-    --elev-wall: #2a2a27;
-    --site-lot: #232a1e;
-    --site-street: #262624;
-  }
+/* Slim brand bar on app screens — the always-available way home. */
+.sitebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem 1.5rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--card);
 }
+.sitebar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--fg);
+  text-decoration: none;
+}
+.sitebar nav {
+  display: flex;
+  gap: 1.1rem;
+  font-size: 0.82rem;
+}
+.sitebar nav a { color: var(--muted); text-decoration: none; }
+.sitebar nav a:hover { color: var(--fg); }
 
 /* Forms & app chrome */
 .field {
@@ -159,20 +162,35 @@ main {
 }
 .btn {
   display: inline-block;
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 0.6rem 1.2rem;
+  background: var(--fg);
+  color: var(--bg);
+  border: 1px solid var(--fg);
+  border-radius: 2px;
+  padding: 0.7rem 1.5rem;
   font: inherit;
+  font-size: 0.8rem;
   font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   cursor: pointer;
   text-decoration: none;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+.btn:hover {
+  background: var(--brass);
+  border-color: var(--brass);
+  color: #fff;
 }
 .btn.secondary {
   background: transparent;
-  color: var(--accent);
-  border: 1px solid var(--accent);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  letter-spacing: 0.1em;
+}
+.btn.secondary:hover {
+  background: transparent;
+  color: var(--brass);
+  border-color: var(--brass);
 }
 .status-pass { color: var(--accent); }
 .status-warn { color: #b58a1e; }
@@ -189,7 +207,14 @@ main {
   align-items: baseline;
   margin-bottom: 2rem;
 }
-.topbar a { color: var(--accent); text-decoration: none; font-weight: 600; }
+.topbar a { color: var(--fg); text-decoration: none; font-weight: 600; border-bottom: 1px solid var(--brass-soft); padding-bottom: 1px; }
+.topbar a:hover { color: var(--brass); }
+/* Button-styled links keep button colors — .topbar a must never paint a
+ * .btn's label ink-on-ink (invisible once the site went light-only). */
+.topbar a.btn { color: var(--bg); border-bottom: 1px solid var(--fg); padding-bottom: 0.7rem; }
+.topbar a.btn:hover { color: #fff; border-bottom-color: var(--brass); }
+.topbar a.btn.secondary { color: var(--fg); border-bottom: 1px solid var(--line); }
+.topbar a.btn.secondary:hover { color: var(--brass); border-bottom-color: var(--brass); }
 table.lineitems {
   width: 100%;
   border-collapse: collapse;
@@ -211,11 +236,249 @@ table.lineitems td:last-child, table.lineitems th:last-child { text-align: right
   margin: 0.75rem 0;
 }
 .print-only { display: none; }
+.bid-sheet { margin-bottom: 2rem; }
+.bid-sheet td.bid-blank { border-bottom: 1px solid var(--line); }
 @media print {
   .no-print { display: none !important; }
   .print-only { display: block; }
   body { background: #fff; color: #111; }
   main { max-width: none; padding: 0; }
   .report-concept { break-inside: avoid-page; page-break-inside: avoid; }
+  .bid-sheet { break-before: page; page-break-before: always; break-inside: avoid-page; }
+  .bid-sheet:first-of-type { break-before: auto; page-break-before: auto; }
   a { color: inherit; text-decoration: none; }
 }
+
+/* ---------- Luxury landing (folio) ---------- */
+.folio main { max-width: 1060px; }
+.wordmark {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: 1.1rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4.5rem;
+}
+.wordmark strong {
+  font-family: var(--display);
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.34em;
+}
+.wordmark a {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.78rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.wordmark a:hover { color: var(--brass); }
+.eyebrow {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--brass);
+  margin: 0 0 1.4rem;
+}
+.folio-hero h1 {
+  font-size: clamp(2.6rem, 6vw, 4.4rem);
+  line-height: 1.08;
+  margin: 0 0 1.6rem;
+  max-width: 17ch;
+}
+.folio-hero .lead {
+  color: var(--muted);
+  font-size: 1.12rem;
+  line-height: 1.7;
+  max-width: 34rem;
+  margin: 0 0 2.6rem;
+}
+.hairline { border: none; border-top: 1px solid var(--line); margin: 5rem 0; }
+.frames {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.6rem;
+  align-items: start;
+}
+.frame {
+  background: var(--card);
+  border: 1px solid var(--line);
+  padding: 1.4rem 1.4rem 1rem;
+  box-shadow: 0 1px 0 var(--line);
+}
+.frame figcaption {
+  margin-top: 0.9rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.frame figcaption em { font-style: normal; color: var(--brass); }
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 2rem;
+  margin: 0;
+}
+.stat-row div { border-left: 1px solid var(--brass-soft); padding-left: 1.1rem; }
+.stat-row strong {
+  display: block;
+  font-family: var(--display);
+  font-size: 2rem;
+  font-weight: 500;
+  margin-bottom: 0.15rem;
+}
+.stat-row span { color: var(--muted); font-size: 0.85rem; letter-spacing: 0.04em; }
+.sphere-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 0 3.5rem;
+}
+.sphere-list li {
+  display: grid;
+  grid-template-columns: 2.6rem 1fr;
+  gap: 1rem;
+  padding: 1.15rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.sphere-list .no {
+  font-family: var(--display);
+  color: var(--brass);
+  font-size: 1.05rem;
+  padding-top: 0.1rem;
+}
+.sphere-list h3 {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 1.12rem;
+  margin: 0 0 0.2rem;
+}
+.sphere-list p { margin: 0; color: var(--muted); font-size: 0.9rem; line-height: 1.55; }
+.sphere-list .phase-tag {
+  font-size: 0.66rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 2.5rem; }
+.steps h3 { font-family: var(--display); font-size: 1.35rem; font-weight: 500; margin: 0.6rem 0 0.5rem; }
+.steps p { color: var(--muted); font-size: 0.94rem; line-height: 1.65; margin: 0; }
+.band {
+  background: var(--ink);
+  color: var(--ivory);
+  margin: 5rem calc(50% - 50vw) 0;
+  padding: 5.5rem 1.5rem;
+  text-align: center;
+}
+.band h2 { font-size: clamp(1.9rem, 4vw, 2.9rem); margin: 0 auto 2rem; max-width: 22ch; font-weight: 500; }
+.band .btn { background: var(--ivory); color: var(--ink); border-color: var(--ivory); }
+.band .btn:hover { background: var(--brass-soft); border-color: var(--brass-soft); color: var(--ink); }
+.folio footer {
+  padding: 2.6rem 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 2rem;
+  justify-content: space-between;
+}
+/* Drawings render as ink-on-ivory plates inside frames */
+.frame .plate {
+  --fg: #3a3227;
+  --elev-wall: #efe9db;
+  --plan-roof: #d9cdb4;
+  --plan-window: #dfe7ea;
+  --plan-bedroom: #f1ece0;
+  --plan-bathroom: #ecead9;
+  --plan-kitchen: #f3ecdb;
+  --plan-living: #f0e9d8;
+  --plan-office: #ede8db;
+  --plan-garage: #e9e5d9;
+  --plan-hall: #f2eee2;
+  --plan-outdoor: #e9ecd9;
+  --site-lot: #edeadb;
+  --site-street: #e6e1d2;
+  --muted: #8d8271;
+  color: #3a3227;
+}
+
+/* ---------- Animated brand mark ---------- */
+.brandmark { display: inline-block; vertical-align: -0.35em; color: var(--fg); }
+.brandmark svg { display: block; overflow: visible; }
+.bm-spin, .bm-spin-rev, .bm-orbit { transform-origin: 24px 24px; }
+.bm-spin { animation: bm-turn 9s linear infinite; }
+.bm-spin-rev { animation: bm-turn 14s linear infinite reverse; }
+.bm-orbit { animation: bm-turn 6s linear infinite; }
+@keyframes bm-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .bm-spin, .bm-spin-rev, .bm-orbit { animation: none; }
+}
+.viewer-shell { position: relative; }
+.viewer-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  align-items: center;
+  justify-content: center;
+  background: var(--card);
+  color: var(--brass);
+  font-size: 0.72rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  transition: opacity 0.6s;
+  pointer-events: none;
+}
+.viewer-loading.hidden { opacity: 0; }
+
+/* Mobile: rows wrap instead of forcing sideways scroll. */
+.topbar { flex-wrap: wrap; gap: 0.5rem 1rem; }
+.viewtabs { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.5rem 0; }
+@media (max-width: 640px) {
+  main { padding: 2.2rem 1rem; }
+  .report-visuals { flex-wrap: wrap; }
+}
+
+/* ---------- Moving pearl background (site-wide) ---------- */
+/* Blobs are sized in vmax so phones get the same airy spacing as desktops
+ * (percent-sized layers stacked into a muddy green on small screens), and
+ * alphas stay whisper-quiet: the page must still read as ivory/white. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(90vmax 70vmax at 12% 6%, rgba(213, 178, 122, 0.26), transparent 55%),
+    radial-gradient(85vmax 65vmax at 88% 30%, rgba(146, 182, 214, 0.22), transparent 55%),
+    radial-gradient(88vmax 68vmax at 55% 95%, rgba(214, 162, 182, 0.20), transparent 55%),
+    var(--bg);
+  background-size: 200% 200%, 200% 200%, 200% 200%, 100% 100%;
+  background-repeat: no-repeat;
+  animation: pearl-drift 30s ease-in-out infinite alternate;
+}
+@keyframes pearl-drift {
+  0% {
+    background-position: 0% 0%, 100% 20%, 60% 100%, 0 0;
+  }
+  50% {
+    background-position: 35% 30%, 65% 50%, 40% 60%, 0 0;
+  }
+  100% {
+    background-position: 15% 60%, 80% 75%, 65% 20%, 0 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  body::before { animation: none; }
+}
+/* The ink band and frames float above the pearl untouched. */
+.folio .frame, .folio .band { position: relative; }

@@ -1,51 +1,57 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { Sky } from "three/examples/jsm/objects/Sky.js";
 
 import type { FinishSelections } from "@/lib/catalog/materials";
+import { WALL_HEIGHT_FT } from "@/lib/engine/iso";
 import { exteriorPalette } from "@/lib/render/palette";
 import { buildScene3D, type Box3 } from "@/lib/render/scene3d";
 import type { HomeStyle, ParametricModel } from "@/lib/types";
+import { BrandMark } from "./BrandMark";
 import { concreteTexture, grassTexture, roofTextureFor, TILE_FT, wallTextureFor } from "./textures3d";
+
+const EYE_FT = 5.5;
+const WALK_SPEED = 14; // ft/s
+const BODY_R = 0.4;
 
 /**
  * The interactive 3D viewer (BS-MOD-001), real-time edition: PBR
- * materials with procedural textures, an atmospheric sky driving
- * image-based lighting, soft sun shadows, and the deterministic
- * landscaping from the scene builder. Still a pure consumer of scene3d —
- * every geometry decision lives in the engine.
+ * materials with procedural textures, an atmospheric sky, soft sun
+ * shadows, deterministic landscaping — and a first-person Walk mode
+ * through the real doorway voids the scene builder cuts. Still a pure
+ * consumer of scene3d — every geometry decision lives in the engine.
  */
 export function Viewer3D({
   model,
   style,
   finishes,
+  interiorScheme,
 }: {
   model: ParametricModel;
   style?: HomeStyle;
   finishes?: FinishSelections;
+  /** Interior scheme key; defaults to the style's natural scheme. */
+  interiorScheme?: string;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
+  const [ready, setReady] = useState(false);
+  const [mode, setMode] = useState<"orbit" | "walk">("orbit");
+  const [level, setLevel] = useState(0);
 
   useEffect(() => {
+    setReady(false);
     const mount = mountRef.current;
     if (!mount) return;
 
-    const scene3d = buildScene3D(model, style, finishes);
+    const scene3d = buildScene3D(model, style, finishes, interiorScheme);
     const palette = exteriorPalette(finishes);
     const { cx, cz, w, d, h } = scene3d.bounds;
     const radius = Math.max(w, d, h);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
-    // Software rasterizers (SwiftShader/llvmpipe) mis-render the PMREM
-    // half-float pipeline and every environment-lit material goes black —
-    // detect them and rely on analytic lights there instead.
-    const gl = renderer.getContext();
-    const dbgInfo = gl.getExtension("WEBGL_debug_renderer_info");
-    const glRenderer = dbgInfo ? String(gl.getParameter(dbgInfo.UNMASKED_RENDERER_WEBGL)) : "";
-    const softwareGL = /swiftshader|llvmpipe|software/i.test(glRenderer);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -56,50 +62,23 @@ export function Viewer3D({
     const scene = new THREE.Scene();
     scene.fog = new THREE.Fog(0xdce9f2, radius * 6, radius * 14);
 
-    const camera = new THREE.PerspectiveCamera(42, 1, 0.5, radius * 30);
+    const camera = new THREE.PerspectiveCamera(mode === "walk" ? 65 : 42, 1, 0.2, radius * 30);
     camera.position.set(cx - radius * 0.85, h * 0.5 + radius * 0.45, cz - radius * 1.15);
 
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target.set(cx, h / 2.8, cz);
-    controls.enableDamping = true;
-    controls.maxPolarAngle = Math.PI / 2 - 0.03;
-    controls.minDistance = radius * 0.3;
-    controls.maxDistance = radius * 6;
-
-    // Sky + image-based lighting, guarded: software WebGL (and some old
-    // GPUs) can fail the PMREM/half-float path — fall back to a plain sky
-    // color and hemisphere-only ambience rather than a black scene.
+    // Sky dome + analytic lights only. The PMREM environment-map path
+    // renders BLACK on more real-world GPUs than it works on (SwiftShader,
+    // llvmpipe, and iOS Safari all failed it in testing) — the analytic
+    // setup below is proven correct everywhere and looks nearly as good.
     const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(52), THREE.MathUtils.degToRad(-140));
     scene.background = new THREE.Color(0xcfe3f2);
-    let sky: Sky | null = null;
-    let envSky: Sky | null = null;
-    let pmrem: THREE.PMREMGenerator | null = null;
-    let envMap: THREE.Texture | null = null;
-    try {
-      sky = new Sky();
-      sky.scale.setScalar(radius * 25);
-      sky.position.set(cx, 0, cz);
-      sky.material.uniforms.turbidity.value = 6;
-      sky.material.uniforms.rayleigh.value = 1.6;
-      sky.material.uniforms.mieCoefficient.value = 0.004;
-      sky.material.uniforms.sunPosition.value.copy(sunDir);
-      scene.add(sky);
-
-      pmrem = new THREE.PMREMGenerator(renderer);
-      const envScene = new THREE.Scene();
-      envSky = new Sky();
-      envSky.scale.setScalar(1000);
-      envSky.material.uniforms.turbidity.value = 6;
-      envSky.material.uniforms.rayleigh.value = 1.6;
-      envSky.material.uniforms.sunPosition.value.copy(sunDir);
-      envScene.add(envSky);
-      envMap = pmrem.fromScene(envScene, 0.02).texture;
-      if (!softwareGL) scene.environment = envMap;
-    } catch {
-      if (sky) scene.remove(sky);
-      sky = null;
-      scene.environment = null;
-    }
+    const sky = new Sky();
+    sky.scale.setScalar(radius * 25);
+    sky.position.set(cx, 0, cz);
+    sky.material.uniforms.turbidity.value = 6;
+    sky.material.uniforms.rayleigh.value = 1.6;
+    sky.material.uniforms.mieCoefficient.value = 0.004;
+    sky.material.uniforms.sunPosition.value.copy(sunDir);
+    scene.add(sky);
 
     const sun = new THREE.DirectionalLight(0xfff1dc, 3.2);
     sun.position.copy(sunDir).multiplyScalar(radius * 2.2).add(new THREE.Vector3(cx, 0, cz));
@@ -117,8 +96,6 @@ export function Viewer3D({
     scene.add(new THREE.HemisphereLight(0xcfe4f5, 0x6a7a55, 0.9));
 
     const disposables: { dispose(): void }[] = [];
-    if (pmrem) disposables.push(pmrem);
-    if (envMap) disposables.push(envMap);
     const track = <T extends { dispose(): void }>(x: T): T => {
       disposables.push(x);
       return x;
@@ -141,7 +118,7 @@ export function Viewer3D({
     const roofTex = track(roofTextureFor(palette));
     const driveTex = track(concreteTexture("#a8a49c"));
     const glassMat = track(
-      new THREE.MeshStandardMaterial({ color: 0xbfd9e8, roughness: 0.08, metalness: 0.4, transparent: true, opacity: 0.62, envMapIntensity: 1.6 }),
+      new THREE.MeshStandardMaterial({ color: 0xbfd9e8, roughness: 0.08, metalness: 0.4, transparent: true, opacity: 0.62 }),
     );
     const plainMats = new Map<string, THREE.MeshStandardMaterial>();
     const plain = (color: string, roughness = 0.85) => {
@@ -176,6 +153,7 @@ export function Viewer3D({
       }
       if (box.kind === "door") return plain(box.color, 0.6);
       if (box.kind === "trim") return plain(box.color, 0.55);
+      if (box.kind === "furn") return plain(box.color, 0.75);
       return plain(box.color);
     };
 
@@ -230,11 +208,179 @@ export function Viewer3D({
       scene.add(mesh);
     }
 
+    // ---------- Walk mode ----------
+    let controls: OrbitControls | null = null;
+    let walkCleanup: (() => void) | null = null;
+    const clock = new THREE.Clock();
+
+    if (mode === "orbit") {
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.target.set(cx, h / 2.8, cz);
+      controls.enableDamping = true;
+      controls.maxPolarAngle = Math.PI / 2 - 0.03;
+      controls.minDistance = radius * 0.3;
+      controls.maxDistance = radius * 6;
+    } else {
+      // Interior fill + room lights so rooms under the roof aren't caves.
+      scene.add(new THREE.AmbientLight(0xfff6e8, 0.5));
+      for (const room of model.rooms) {
+        if (room.kind === "garage" || room.kind === "outdoor") continue;
+        const [rx, rz, rw, rd] = room.rect;
+        const light = new THREE.PointLight(0xfff3e0, 80, Math.max(rw, rd) * 1.8, 2);
+        light.position.set(rx + rw / 2, room.level * WALL_HEIGHT_FT + WALL_HEIGHT_FT - 0.8, rz + rd / 2);
+        scene.add(light);
+      }
+
+      const eyeBase = level * WALL_HEIGHT_FT;
+
+      // Solid obstacles at body height on this level: cut wall segments
+      // (doorway voids excluded by their y-span), door leaves, furniture.
+      const solids = scene3d.boxes.filter(
+        (b) =>
+          (b.kind === "wall" || b.kind === "door" || b.kind === "furn") &&
+          b.y < eyeBase + 6.0 &&
+          b.y + b.h > eyeBase + 1.2,
+      );
+      const blocked = (px: number, pz: number) =>
+        solids.some(
+          (b) => px > b.x - BODY_R && px < b.x + b.w + BODY_R && pz > b.z - BODY_R && pz < b.z + b.d + BODY_R,
+        );
+
+      // Spawn in the living room (or the first habitable room) at the
+      // first clear spot — the room's center may hold furniture now.
+      const ground0 = model.rooms.filter((r) => r.level === level && r.kind !== "garage" && r.kind !== "outdoor");
+      const spawn = ground0.find((r) => r.kind === "living") ?? ground0[0];
+      const [sx, sz, sw, sd] = spawn.rect;
+      let spawnX = sx + sw / 2;
+      let spawnZ = sz + sd / 2;
+      for (const [ox, oz] of [[0, 0], [2.5, 0], [-2.5, 0], [0, 2.5], [0, -2.5], [3.5, 3.5], [-3.5, -3.5]]) {
+        if (!blocked(sx + sw / 2 + ox, sz + sd / 2 + oz)) {
+          spawnX = sx + sw / 2 + ox;
+          spawnZ = sz + sd / 2 + oz;
+          break;
+        }
+      }
+      const pos = new THREE.Vector3(spawnX, eyeBase + EYE_FT, spawnZ);
+      let yaw = 0; // facing +Z: toward the hallway side
+      let pitch = 0;
+
+      const keys = new Set<string>();
+      const touchMove = { forward: 0 };
+      const onKeyDown = (e: KeyboardEvent) => {
+        if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) {
+          keys.add(e.code);
+          e.preventDefault();
+        }
+      };
+      const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code);
+      window.addEventListener("keydown", onKeyDown);
+      window.addEventListener("keyup", onKeyUp);
+
+      // Drag to look, mouse or touch.
+      let dragging = false;
+      let lastX = 0;
+      let lastY = 0;
+      const el = renderer.domElement;
+      el.style.touchAction = "none";
+      const onPointerDown = (e: PointerEvent) => {
+        dragging = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        el.setPointerCapture(e.pointerId);
+      };
+      const onPointerMove = (e: PointerEvent) => {
+        if (!dragging) return;
+        yaw -= (e.clientX - lastX) * 0.004;
+        pitch = THREE.MathUtils.clamp(pitch - (e.clientY - lastY) * 0.003, -1.2, 1.2);
+        lastX = e.clientX;
+        lastY = e.clientY;
+      };
+      const onPointerUp = () => {
+        dragging = false;
+      };
+      el.addEventListener("pointerdown", onPointerDown);
+      el.addEventListener("pointermove", onPointerMove);
+      el.addEventListener("pointerup", onPointerUp);
+      el.addEventListener("pointercancel", onPointerUp);
+
+      // On-screen buttons (touch) talk through data attributes on the HUD.
+      const hud = mount.parentElement?.querySelectorAll<HTMLButtonElement>("[data-walk]") ?? [];
+      const hudHandlers: [HTMLButtonElement, string, (e: Event) => void][] = [];
+      hud.forEach((btn) => {
+        const dir = btn.dataset.walk === "fwd" ? 1 : -1;
+        const press = (e: Event) => {
+          e.preventDefault();
+          touchMove.forward = dir;
+        };
+        const release = () => {
+          touchMove.forward = 0;
+        };
+        btn.addEventListener("pointerdown", press);
+        btn.addEventListener("pointerup", release);
+        btn.addEventListener("pointerleave", release);
+        hudHandlers.push([btn, "pointerdown", press], [btn, "pointerup", release], [btn, "pointerleave", release]);
+      });
+
+      const stepWalk = (dt: number) => {
+        let fwd = touchMove.forward;
+        let strafe = 0;
+        if (keys.has("KeyW") || keys.has("ArrowUp")) fwd += 1;
+        if (keys.has("KeyS") || keys.has("ArrowDown")) fwd -= 1;
+        if (keys.has("KeyA")) strafe -= 1;
+        if (keys.has("KeyD")) strafe += 1;
+        if (keys.has("ArrowLeft")) yaw += dt * 1.8;
+        if (keys.has("ArrowRight")) yaw -= dt * 1.8;
+        if (fwd !== 0 || strafe !== 0) {
+          const dirX = Math.sin(yaw);
+          const dirZ = Math.cos(yaw);
+          const mx = (dirX * fwd + dirZ * strafe) * WALK_SPEED * dt;
+          const mz = (dirZ * fwd - dirX * strafe) * WALK_SPEED * dt;
+          // Axis-sliding collision: try full move, then each axis alone.
+          if (!blocked(pos.x + mx, pos.z + mz)) {
+            pos.x += mx;
+            pos.z += mz;
+          } else if (!blocked(pos.x + mx, pos.z)) {
+            pos.x += mx;
+          } else if (!blocked(pos.x, pos.z + mz)) {
+            pos.z += mz;
+          }
+          // Stay near the property.
+          pos.x = THREE.MathUtils.clamp(pos.x, cx - radius * 2, cx + radius * 2);
+          pos.z = THREE.MathUtils.clamp(pos.z, cz - radius * 2, cz + radius * 2);
+        }
+        camera.position.copy(pos);
+        camera.lookAt(
+          pos.x + Math.sin(yaw) * Math.cos(pitch),
+          pos.y + Math.sin(pitch),
+          pos.z + Math.cos(yaw) * Math.cos(pitch),
+        );
+      };
+
+      walkCleanup = () => {
+        window.removeEventListener("keydown", onKeyDown);
+        window.removeEventListener("keyup", onKeyUp);
+        el.removeEventListener("pointerdown", onPointerDown);
+        el.removeEventListener("pointermove", onPointerMove);
+        el.removeEventListener("pointerup", onPointerUp);
+        el.removeEventListener("pointercancel", onPointerUp);
+        for (const [btn, event, handler] of hudHandlers) btn.removeEventListener(event, handler);
+      };
+      (camera as THREE.PerspectiveCamera & { stepWalk?: (dt: number) => void }).stepWalk = stepWalk;
+    }
+
     let frame = 0;
+    let announced = false;
     const renderLoop = () => {
       frame = requestAnimationFrame(renderLoop);
-      controls.update();
+      const dt = Math.min(clock.getDelta(), 0.1);
+      if (controls) controls.update();
+      const stepWalk = (camera as THREE.PerspectiveCamera & { stepWalk?: (dt: number) => void }).stepWalk;
+      if (stepWalk) stepWalk(dt);
       renderer.render(scene, camera);
+      if (!announced) {
+        announced = true;
+        setReady(true);
+      }
     };
 
     const resize = () => {
@@ -252,27 +398,82 @@ export function Viewer3D({
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
-      controls.dispose();
-      if (sky) {
-        sky.material.dispose();
-        sky.geometry.dispose();
-      }
-      if (envSky) {
-        envSky.material.dispose();
-        envSky.geometry.dispose();
-      }
+      if (controls) controls.dispose();
+      if (walkCleanup) walkCleanup();
+      sky.material.dispose();
+      sky.geometry.dispose();
       for (const disp of disposables) disp.dispose();
       renderer.dispose();
       mount.removeChild(renderer.domElement);
     };
-  }, [model, style, finishes]);
+  }, [model, style, finishes, interiorScheme, mode, level]);
 
   return (
     <div>
-      <div ref={mountRef} style={{ width: "100%", borderRadius: 8, overflow: "hidden" }} />
+      <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", margin: "0 0 0.4rem", flexWrap: "wrap" }}>
+        <button
+          className={mode === "orbit" ? "btn" : "btn secondary"}
+          style={{ padding: "0.25rem 0.8rem", fontSize: "0.8rem" }}
+          type="button"
+          onClick={() => setMode("orbit")}
+        >
+          Orbit
+        </button>
+        <button
+          className={mode === "walk" ? "btn" : "btn secondary"}
+          style={{ padding: "0.25rem 0.8rem", fontSize: "0.8rem" }}
+          type="button"
+          onClick={() => setMode("walk")}
+        >
+          Walk inside
+        </button>
+        {mode === "walk" && model.levels > 1 && (
+          <span style={{ display: "inline-flex", gap: "0.35rem" }}>
+            {Array.from({ length: model.levels }, (_, i) => (
+              <button
+                key={i}
+                className={level === i ? "btn" : "btn secondary"}
+                style={{ padding: "0.25rem 0.7rem", fontSize: "0.8rem" }}
+                type="button"
+                onClick={() => setLevel(i)}
+              >
+                Level {i + 1}
+              </button>
+            ))}
+          </span>
+        )}
+      </div>
+      <div className="viewer-shell">
+        <div ref={mountRef} style={{ width: "100%", borderRadius: 8, overflow: "hidden" }} />
+        {mode === "walk" && (
+          <div
+            style={{
+              position: "absolute",
+              bottom: 14,
+              left: "50%",
+              transform: "translateX(-50%)",
+              display: "flex",
+              gap: "0.6rem",
+              zIndex: 2,
+            }}
+          >
+            <button data-walk="fwd" className="btn" style={{ padding: "0.5rem 1.1rem" }} type="button" aria-label="Walk forward">
+              ▲
+            </button>
+            <button data-walk="back" className="btn" style={{ padding: "0.5rem 1.1rem" }} type="button" aria-label="Walk backward">
+              ▼
+            </button>
+          </div>
+        )}
+        <div className={ready ? "viewer-loading hidden" : "viewer-loading"}>
+          <BrandMark size={44} />
+          <span>Raising your home</span>
+        </div>
+      </div>
       <p style={{ margin: "0.25rem 0 0", fontSize: "0.8rem", color: "var(--muted)" }}>
-        Drag to orbit · scroll to zoom · right-drag to pan. Real-time preview with your selected
-        materials — photorealistic still renders arrive with the ModelSphere pipeline.
+        {mode === "orbit"
+          ? "Drag to orbit · scroll to zoom · right-drag to pan. Real-time preview with your selected materials — photorealistic still renders arrive with the ModelSphere pipeline."
+          : "Drag to look around · WASD/arrow keys or the ▲▼ buttons to move. Walls stop you; doorways don't — walk the real plan."}
       </p>
     </div>
   );
