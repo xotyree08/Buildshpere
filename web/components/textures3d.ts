@@ -42,8 +42,109 @@ function finish(c: HTMLCanvasElement): THREE.CanvasTexture {
   return tex;
 }
 
+/** Bump/roughness data is linear — never sRGB-encode it. */
+function finishLinear(c: HTMLCanvasElement): THREE.CanvasTexture {
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 4;
+  return tex;
+}
+
 /** One texture tile covers this many feet — repeats are set per mesh. */
 export const TILE_FT = 8;
+
+/** Height relief for clapboard laps — each course steps out over the last. */
+export function clapboardBump(): THREE.CanvasTexture {
+  const [c, g] = canvas(256);
+  const lapH = 256 / 12;
+  for (let row = 0; row < 12; row++) {
+    const y = row * lapH;
+    const grad = g.createLinearGradient(0, y, 0, y + lapH);
+    grad.addColorStop(0, "#b0b0b0");
+    grad.addColorStop(0.82, "#d8d8d8");
+    grad.addColorStop(1, "#2a2a2a");
+    g.fillStyle = grad;
+    g.fillRect(0, y, 256, lapH);
+  }
+  return finishLinear(c);
+}
+
+/** Height relief for shingle courses. */
+export function shingleBump(): THREE.CanvasTexture {
+  const [c, g] = canvas(256);
+  const r = mulberry32(19);
+  const rowH = 256 / 8;
+  g.fillStyle = "#bdbdbd";
+  g.fillRect(0, 0, 256, 256);
+  for (let row = 0; row < 8; row++) {
+    const y = row * rowH;
+    const offset = row % 2 === 0 ? 0 : 24;
+    for (let x = -48; x < 256; x += 48) {
+      const tone = Math.round(150 + r() * 60);
+      g.fillStyle = `rgb(${tone},${tone},${tone})`;
+      g.fillRect(x + offset, y, 46, rowH - 3);
+    }
+    g.fillStyle = "#1c1c1c";
+    g.fillRect(0, y + rowH - 3, 256, 3);
+  }
+  return finishLinear(c);
+}
+
+/** Interior wall paint: fine, almost-invisible tooth — not siding. */
+export function plasterTexture(base: string): THREE.CanvasTexture {
+  const [c, g] = canvas(256);
+  const r = mulberry32(37);
+  g.fillStyle = base;
+  g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 1400; i++) {
+    g.fillStyle = jitter(base, 10, r);
+    g.fillRect(r() * 256, r() * 256, 1, 1);
+  }
+  return finish(c);
+}
+
+/** Hardwood planks: staggered lengths, tone variation, grain streaks. */
+export function woodFloorTexture(base: string): THREE.CanvasTexture {
+  const [c, g] = canvas(256);
+  const r = mulberry32(41);
+  const plankH = 256 / 16; // ~6" planks over the 8ft tile
+  for (let row = 0; row < 16; row++) {
+    const y = row * plankH;
+    let x = -Math.floor(r() * 96);
+    while (x < 256) {
+      const len = 72 + Math.floor(r() * 84);
+      const tone = jitter(base, 34, r);
+      g.fillStyle = tone;
+      g.fillRect(x, y, len - 1, plankH - 1);
+      // grain
+      g.fillStyle = "rgba(0,0,0,0.10)";
+      for (let i = 0; i < 3; i++) {
+        g.fillRect(x + 4 + r() * (len - 12), y + 2 + r() * (plankH - 4), 10 + r() * 26, 1);
+      }
+      x += len;
+    }
+    g.fillStyle = "rgba(0,0,0,0.28)";
+    g.fillRect(0, y + plankH - 1, 256, 1);
+  }
+  return finish(c);
+}
+
+/** Ceramic tile floor: 2ft grid, grout, slight tile-to-tile variation. */
+export function tileFloorTexture(base: string): THREE.CanvasTexture {
+  const [c, g] = canvas(256);
+  const r = mulberry32(43);
+  g.fillStyle = "#c9c4ba"; // grout
+  g.fillRect(0, 0, 256, 256);
+  const t = 256 / 4;
+  for (let row = 0; row < 4; row++) {
+    for (let col = 0; col < 4; col++) {
+      g.fillStyle = jitter(base, 14, r);
+      g.fillRect(col * t + 2, row * t + 2, t - 4, t - 4);
+    }
+  }
+  return finish(c);
+}
 
 export function brickTexture(base: string): THREE.CanvasTexture {
   const [c, g] = canvas(256);
@@ -150,9 +251,21 @@ export function grassTexture(): THREE.CanvasTexture {
   const r = mulberry32(29);
   g.fillStyle = "#7d9e5c";
   g.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 5200; i++) {
-    g.fillStyle = jitter("#7d9e5c", 44, r);
-    g.fillRect(r() * 256, r() * 256, 2, 3);
+  // Broad soft patches first — lawns are mottled long before they are blades.
+  for (let i = 0; i < 34; i++) {
+    const x = r() * 256;
+    const y = r() * 256;
+    const rad = 22 + r() * 52;
+    const grad = g.createRadialGradient(x, y, 0, x, y, rad);
+    const dark = r() > 0.5;
+    grad.addColorStop(0, dark ? "rgba(58,82,40,0.16)" : "rgba(168,196,120,0.14)");
+    grad.addColorStop(1, "rgba(0,0,0,0)");
+    g.fillStyle = grad;
+    g.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+  for (let i = 0; i < 6000; i++) {
+    g.fillStyle = jitter("#7d9e5c", 46, r);
+    g.fillRect(r() * 256, r() * 256, 1 + (i % 2), 2 + (i % 3));
   }
   return finish(c);
 }
