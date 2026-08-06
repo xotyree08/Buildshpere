@@ -27,6 +27,26 @@
   }
 }
 
+/* The public folio (landing, FAQ) is ivory by identity — the pearl-on-white
+ * look IS the brand, so these pages ignore system dark mode. App screens
+ * keep both themes. */
+.folio {
+  --bg: #f6f4ee;
+  --fg: #211d17;
+  --muted: #7c7568;
+  --card: #fdfcf9;
+  --line: #e2dcce;
+  --accent: #206a48;
+  --brass: #9a7b3f;
+  --brass-soft: #c9a96a;
+  --ink: #17140f;
+  --ivory: #f6f2e8;
+  background: var(--bg);
+  color: var(--fg);
+  color-scheme: light;
+  min-height: 100vh;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -469,17 +489,6 @@ table.lineitems td:last-child, table.lineitems th:last-child { text-align: right
   }
   100% {
     background-position: 15% 60%, 80% 75%, 65% 20%, 0 0;
-  }
-}
-@media (prefers-color-scheme: dark) {
-  .folio::before {
-    background:
-      radial-gradient(90vmax 70vmax at 12% 6%, rgba(201, 169, 106, 0.06), transparent 52%),
-      radial-gradient(85vmax 65vmax at 88% 30%, rgba(126, 164, 198, 0.05), transparent 52%),
-      radial-gradient(88vmax 68vmax at 55% 95%, rgba(196, 144, 164, 0.05), transparent 52%),
-      var(--bg);
-    background-size: 200% 200%, 200% 200%, 200% 200%, 100% 100%;
-    background-repeat: no-repeat;
   }
 }
 @media (prefers-reduced-motion: reduce) {
