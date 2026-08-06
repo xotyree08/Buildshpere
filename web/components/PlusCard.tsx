@@ -92,10 +92,14 @@ export function PlusCard() {
       ) : (
         <>
           <p style={{ fontSize: "0.9rem", color: "var(--muted)" }}>
-            Core design stays free. Plus supports the platform and unlocks the mobile apps'
-            premium features as they arrive — subscribe here or in the apps; one subscription
-            covers both.
+            Core design stays free, and this browser keeps unlimited local projects either way.
+            Plus adds:
           </p>
+          <ul style={{ fontSize: "0.9rem", color: "var(--muted)", margin: "0 0 0.75rem", paddingLeft: "1.2rem" }}>
+            <li>Unlimited cloud-synced projects across your devices (free tier syncs 3)</li>
+            <li>Every premium feature as it arrives, on web and in the mobile apps</li>
+            <li>One subscription covers all platforms</li>
+          </ul>
           <p style={{ display: "flex", gap: "0.75rem" }}>
             <button className="btn" disabled={busy || owned === null} onClick={() => void checkout("monthly")}>
               {busy ? "Working…" : "Plus monthly"}

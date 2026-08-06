@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { recordAudit } from "@/lib/server/audit";
-import { deleteProject, listProjects, upsertProject } from "@/lib/server/projects";
+import { canSyncNewProject, deleteProject, listProjects, PLUS_REQUIRED_MESSAGE, upsertProject } from "@/lib/server/projects";
 import { isResponse, requireDb, requireUser } from "@/lib/server/http";
 import type { StoredProject } from "@/lib/store";
 
@@ -30,6 +30,10 @@ export async function PUT(req: Request) {
   const entry = body.project;
   if (!entry?.project?.id || typeof entry.project.name !== "string") {
     return NextResponse.json({ error: "project payload is required." }, { status: 422 });
+  }
+
+  if (!(await canSyncNewProject(db, user.id, entry.project.id))) {
+    return NextResponse.json({ error: PLUS_REQUIRED_MESSAGE }, { status: 402 });
   }
 
   try {
