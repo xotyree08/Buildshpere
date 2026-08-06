@@ -25,6 +25,9 @@ body {
   color: var(--fg);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   line-height: 1.55;
+  /* Stacking context so the fixed pearl layer (body::before, z -1) paints
+   * above the body background instead of vanishing behind it. */
+  isolation: isolate;
 }
 
 main {
@@ -89,6 +92,34 @@ h1, h2, .display {
   --site-lot: #e7efdc;
   --site-street: #e2e2dd;
 }
+
+/* Slim brand bar on app screens — the always-available way home. */
+.sitebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem 1.5rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--card);
+}
+.sitebar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--fg);
+  text-decoration: none;
+}
+.sitebar nav {
+  display: flex;
+  gap: 1.1rem;
+  font-size: 0.82rem;
+}
+.sitebar nav a { color: var(--muted); text-decoration: none; }
+.sitebar nav a:hover { color: var(--fg); }
 
 /* Forms & app chrome */
 .field {
@@ -411,12 +442,11 @@ table.lineitems td:last-child, table.lineitems th:last-child { text-align: right
   .report-visuals { flex-wrap: wrap; }
 }
 
-/* ---------- Moving pearl background ---------- */
+/* ---------- Moving pearl background (site-wide) ---------- */
 /* Blobs are sized in vmax so phones get the same airy spacing as desktops
  * (percent-sized layers stacked into a muddy green on small screens), and
  * alphas stay whisper-quiet: the page must still read as ivory/white. */
-.folio { position: relative; isolation: isolate; }
-.folio::before {
+body::before {
   content: "";
   position: fixed;
   inset: 0;
@@ -442,7 +472,7 @@ table.lineitems td:last-child, table.lineitems th:last-child { text-align: right
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .folio::before { animation: none; }
+  body::before { animation: none; }
 }
 /* The ink band and frames float above the pearl untouched. */
 .folio .frame, .folio .band { position: relative; }
