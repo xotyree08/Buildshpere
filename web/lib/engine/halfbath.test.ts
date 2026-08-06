@@ -72,3 +72,32 @@ describe("half baths", () => {
     expect(items.some((i) => i.label.includes("Shower"))).toBe(false);
   });
 });
+
+describe("target square footage", () => {
+  const withSqft = (targetSqft?: number): DesignBrief => ({
+    ...brief(2),
+    program: { ...brief(2).program, targetSqft },
+  });
+
+  const livableSqft = (b: DesignBrief) =>
+    Math.round(
+      generateConcepts(b, 90)[0]
+        .model.rooms.filter((r) => r.kind !== "garage" && r.kind !== "outdoor")
+        .reduce((s, r) => s + r.rect[2] * r.rect[3], 0),
+    );
+
+  it("a 2,600 sqft target lands within ~12% of it", () => {
+    const sqft = livableSqft(withSqft(2600));
+    expect(Math.abs(sqft - 2600) / 2600).toBeLessThan(0.12);
+  });
+
+  it("bigger target genuinely grows the home; absent target is unchanged behavior", () => {
+    const auto = livableSqft(withSqft(undefined));
+    const big = livableSqft(withSqft(3400));
+    const small = livableSqft(withSqft(1200));
+    expect(big).toBeGreaterThan(auto);
+    expect(small).toBeLessThan(auto);
+    // Clamp floor: rooms never shrink below usability even for absurd targets.
+    expect(livableSqft(withSqft(600))).toBeGreaterThan(900);
+  });
+});
