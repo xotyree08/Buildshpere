@@ -13,6 +13,8 @@ export interface AuthUser {
   displayName: string | null;
   /** 'homeowner' | 'professional' */
   role: string;
+  /** ISO timestamp when the address was verified; null until then. */
+  emailConfirmedAt?: string | null;
 }
 
 export type AuthResult = { ok: true; user: AuthUser } | { ok: false; error: string };
