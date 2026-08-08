@@ -44,9 +44,12 @@ export default function Home() {
   return (
     <div className="folio">
       <main>
-        <div className="wordmark">
+        <div className="wordmark" style={{ flexWrap: "wrap", gap: "0.35rem 1rem" }}>
           <strong style={{ display: "inline-flex", alignItems: "center", gap: "0.7rem" }}><BrandMark size={26} /> BUILDSPHERE</strong>
-          <Link href="/pro">For professionals</Link>
+          <span style={{ display: "inline-flex", gap: "1.25rem", flexWrap: "wrap" }}>
+            <Link href="/pricing">Pricing</Link>
+            <Link href="/pro">For professionals</Link>
+          </span>
         </div>
 
         <section className="folio-hero">
@@ -65,6 +68,10 @@ export default function Home() {
             <Link className="btn secondary" href="/sample">
               Tour a sample project
             </Link>
+          </p>
+          <p style={{ fontSize: "0.9rem", color: "var(--muted)" }}>
+            Designing is free. One price, one home when you&apos;re ready —{" "}
+            <Link href="/pricing">see pricing</Link>. No monthly subscription.
           </p>
         </section>
 
