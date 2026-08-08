@@ -9,6 +9,7 @@ import type {
   DesignConcept,
   DesignRevision,
   Estimate,
+  ParametricModel,
   ValueEngineeringSuggestion,
 } from "../types";
 import { generateConcepts } from "./generate";
@@ -160,6 +161,47 @@ export function rollbackConcept(pkg: ConceptPackage, keep: number): RollbackResu
     };
   }
   return { ok: true, pkg: { ...pkg, revisions: history.slice(0, keep) } };
+}
+
+/**
+ * Commit a directly-edited model as one revision. The editor batches a
+ * session's drags — move three rooms and a window, save once — so history
+ * reads like intent ("Moved the Kitchen, widened the Primary Suite")
+ * rather than a mouse log. Health, price, and value engineering all re-run
+ * through the same functions every other revision uses: a hand-drawn plan
+ * is never scored or priced by a softer standard than a generated one.
+ */
+export function commitLayoutEdit(
+  base: ConceptPackage,
+  model: ParametricModel,
+  summaries: string[],
+  opts: { budgetCents: number | null; regionCode?: string; finishes?: FinishSelections },
+): RevisionPackage | null {
+  if (summaries.length === 0) return null;
+
+  const history = base.revisions ?? [];
+  const revisionIndex = history.length + 1;
+  const revisionId = `${base.concept.id}-r${revisionIndex}`;
+  const parentRevisionId = history.length > 0 ? history[history.length - 1].revision.id : `${base.concept.id}-r0`;
+  const finishes: EstimateFinishes = { ...opts.finishes, styleKey: base.concept.style };
+  const health = runChecks(model, revisionId);
+  const estimate = estimateRevision(model, revisionId, opts.regionCode, finishes);
+
+  return {
+    revision: {
+      id: revisionId,
+      conceptId: base.concept.id,
+      parentRevisionId,
+      changeSummary: summaries.join("; "),
+      model,
+      healthScore: health.score,
+    },
+    healthScore: health.score,
+    checkResults: health.results,
+    estimate,
+    veSuggestions: valueEngineering(estimate, opts.budgetCents, model, finishes),
+    rejected: [],
+  };
 }
 
 export interface ReviseOutcome {
