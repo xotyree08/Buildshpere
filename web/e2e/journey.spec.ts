@@ -158,3 +158,41 @@ test("password reset pages serve both halves honestly", async ({ page }) => {
   await page.goto("/reset?token=abc");
   await expect(page.locator('input[type="password"]')).toBeVisible();
 });
+
+test("editing a layout: drag a room, refuse an illegal move, save one revision", async ({ page }) => {
+  await generateProject(page);
+
+  await page.getByRole("button", { name: "Edit this layout" }).first().click();
+  const editor = page.getByRole("application", { name: /Editable floor plan/ }).first();
+  await editor.waitFor({ timeout: 15_000 });
+  const room = editor.getByRole("button").first();
+
+  // Keyboard path: the editor has to be usable without a pointer. Generated
+  // plans pack rooms tightly, so whichever direction has clearance is the
+  // one that moves — any of them proves the path works.
+  await room.focus();
+  let moved = false;
+  for (const key of ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"]) {
+    await page.keyboard.press(key);
+    if ((await page.textContent("body"))?.includes("unsaved change")) {
+      moved = true;
+      break;
+    }
+  }
+  expect(moved).toBe(true);
+
+  // A drag far past the setback line must be refused with a reason — not
+  // silently clamped to the edge, and not accepted.
+  const box = (await room.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 4000, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await expect(page.getByTestId("editor-message")).toContainText(/buildable|overlap/, { timeout: 10_000 });
+
+  // Saving commits the accumulated edits as one rollback-able revision, and
+  // the health score and estimate re-run through the normal loop.
+  await page.getByRole("button", { name: /^Save \d+ change/ }).click();
+  await expect(page.locator("body")).toContainText(/rev 1/, { timeout: 15_000 });
+  await expect(page.locator("body")).toContainText(/Moved /, { timeout: 15_000 });
+});

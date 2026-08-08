@@ -9,6 +9,7 @@ import { FloorPlan } from "@/components/FloorPlan";
 import { ElectricalPlanView } from "@/components/ElectricalPlanView";
 import { PlumbingPlanView } from "@/components/PlumbingPlanView";
 import { MassingView } from "@/components/MassingView";
+import { EditableFloorPlan } from "@/components/EditableFloorPlan";
 import { LicensePanel } from "@/components/LicensePanel";
 import { ReviewSection, type Review } from "@/components/ReviewSection";
 import { SitePlanView } from "@/components/SitePlanView";
@@ -20,6 +21,7 @@ import { CONCEPT_DISCLAIMER, ESTIMATE_RANGE_CLAIM } from "@/lib/claims";
 import type { Interpretation } from "@/lib/engine/interpret";
 import {
   applyOpsToConceptPackage,
+  commitLayoutEdit,
   freezeMilestone,
   frozenFloor,
   repriceConceptPackage,
@@ -32,7 +34,7 @@ import { SetbacksEditor } from "@/components/SetbacksEditor";
 import { SCENARIOS } from "@/lib/catalog/scenarios";
 import { compareConcepts } from "@/lib/engine/compare";
 import { buildPermitReadiness } from "@/lib/engine/permit";
-import { buildSitePlan, sanitizeSetbacks, type SetbackRules } from "@/lib/engine/site";
+import { buildableDepthFt, buildableWidthFt, buildSitePlan, sanitizeSetbacks, type SetbackRules } from "@/lib/engine/site";
 import { exportFilename, exportProject } from "@/lib/portability";
 import { deriveDesignStatus } from "@/lib/status";
 import { accountEmail, formatUsd, loadProject, saveProject, type StoredProject } from "@/lib/store";
@@ -138,6 +140,7 @@ function ConceptCard({
   onRollback,
   onFreeze,
   onSetbacksChange,
+  onLayoutSave,
   review,
 }: {
   pkg: ConceptPackage;
@@ -156,12 +159,15 @@ function ConceptCard({
   onRollback: (keep: number) => Promise<string | null>;
   onFreeze: (label: string) => Promise<string | null>;
   onSetbacksChange: (rules: SetbackRules | null) => Promise<string | null>;
+  onLayoutSave: (model: ParametricModel, summaries: string[]) => Promise<string | null>;
   review: Review | null;
 }) {
   const [request, setRequest] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [revising, setRevising] = useState(false);
   const [view, setView] = useState<"plan" | "massing" | "viewer3d" | "elevations" | "site" | "walkthrough" | "electrical" | "plumbing">("plan");
+  const [editing, setEditing] = useState(false);
+  const [editLevel, setEditLevel] = useState(0);
 
   const { concept } = pkg;
   const history = pkg.revisions ?? [];
@@ -180,6 +186,17 @@ function ConceptCard({
       .filter((r) => r.kind !== "garage" && r.kind !== "outdoor")
       .reduce((a, r) => a + r.rect[2] * r.rect[3], 0),
   );
+
+  // The editor needs hard bounds. With a known lot that is the buildable
+  // envelope; without one, the plan's own extent plus working room — so a
+  // project that skipped the lot question can still be rearranged, but
+  // rooms can't wander somewhere no lot would hold them.
+  const planWidth = Math.max(...model.rooms.map((r) => r.rect[0] + r.rect[2]), 24);
+  const planDepth = Math.max(...model.rooms.map((r) => r.rect[1] + r.rect[3]), 24);
+  const editEnvelope = {
+    widthFt: buildableWidthFt(lotWidthFt, setbacks) ?? Math.ceil(planWidth) + 20,
+    depthFt: buildableDepthFt(lotDepthFt, setbacks) ?? Math.ceil(planDepth) + 20,
+  };
 
   const byCategory = new Map<string, number>();
   for (const li of estimate.lineItems) {
@@ -275,12 +292,63 @@ function ConceptCard({
       </p>
 
       {view === "plan" ? (
-        Array.from({ length: model.levels }, (_, lvl) => (
-          <div key={lvl} style={{ margin: "0.75rem 0" }}>
-            {model.levels > 1 && <p style={{ margin: "0 0 0.25rem", fontSize: "0.8rem" }}>Level {lvl + 1}</p>}
-            <FloorPlan model={model} level={lvl} />
+        editing ? (
+          <div style={{ margin: "0.75rem 0" }}>
+            {model.levels > 1 && (
+              <p style={{ display: "flex", gap: "0.35rem", margin: "0 0 0.4rem", alignItems: "center" }}>
+                {Array.from({ length: model.levels }, (_, lvl) => (
+                  <button
+                    key={lvl}
+                    type="button"
+                    className={editLevel === lvl ? "btn" : "btn secondary"}
+                    style={{ padding: "0.2rem 0.7rem", fontSize: "0.8rem" }}
+                    onClick={() => setEditLevel(lvl)}
+                  >
+                    Level {lvl + 1}
+                  </button>
+                ))}
+                <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+                  Editing one level at a time
+                </span>
+              </p>
+            )}
+            <EditableFloorPlan
+              model={model}
+              level={editLevel}
+              envelope={editEnvelope}
+              onCancel={() => setEditing(false)}
+              onSave={(next, summaries) => {
+                void onLayoutSave(next, summaries).then((problem) => {
+                  setFeedback(problem);
+                  if (!problem) setEditing(false);
+                });
+              }}
+            />
           </div>
-        ))
+        ) : (
+          <>
+            {Array.from({ length: model.levels }, (_, lvl) => (
+              <div key={lvl} style={{ margin: "0.75rem 0" }}>
+                {model.levels > 1 && <p style={{ margin: "0 0 0.25rem", fontSize: "0.8rem" }}>Level {lvl + 1}</p>}
+                <FloorPlan model={model} level={lvl} />
+              </div>
+            ))}
+            <button
+              type="button"
+              className="btn secondary"
+              style={{ padding: "0.25rem 0.9rem", fontSize: "0.85rem" }}
+              onClick={() => {
+                setEditLevel(0);
+                setEditing(true);
+              }}
+            >
+              Edit this layout
+            </button>
+            <span style={{ fontSize: "0.8rem", color: "var(--muted)", marginLeft: "0.6rem" }}>
+              Move rooms, drag walls, slide doors and windows — saved as a revision you can roll back.
+            </span>
+          </>
+        )
       ) : view === "massing" ? (
         <div style={{ margin: "0.75rem 0" }}>
           <MassingView model={model} style={concept.style} finishes={finishes} />
@@ -683,6 +751,37 @@ export default function ProjectPage() {
     return null;
   }
 
+  /**
+   * Commit an editing session as one revision. Same storage, sync, and
+   * history path as a conversational revision — a hand-drawn change is a
+   * first-class revision, rollback-able like any other.
+   */
+  async function handleLayoutSave(
+    conceptId: string,
+    nextModel: ParametricModel,
+    summaries: string[],
+  ): Promise<string | null> {
+    const current = loadProject(params.id);
+    if (!current) return "Project disappeared from local storage.";
+    const idx = current.packages.findIndex((p) => p.concept.id === conceptId);
+    if (idx < 0) return "Concept not found.";
+    const base = current.packages[idx];
+    const revision = commitLayoutEdit(base, nextModel, summaries, {
+      budgetCents: current.project.budgetCents,
+      regionCode: current.regionCode,
+      finishes: current.finishes,
+    });
+    if (!revision) return "Nothing changed — move a room or a wall first.";
+
+    current.packages[idx] = { ...base, revisions: [...(base.revisions ?? []), revision] };
+    const saved = saveProject(current);
+    if (!saved.ok) return saved.error;
+    setStorageNotice(saved.warning ?? null);
+    setEntry(loadProject(params.id));
+    if (accountEmail()) void pushProject(current).then((r) => !r.ok && setStorageNotice(r.error));
+    return null;
+  }
+
   async function handleRollback(conceptId: string, keep: number): Promise<string | null> {
     const current = loadProject(params.id);
     if (!current) return "Project disappeared from local storage.";
@@ -1055,6 +1154,7 @@ export default function ProjectPage() {
           onRollback={(keep) => handleRollback(pkg.concept.id, keep)}
           onFreeze={(label) => handleFreeze(pkg.concept.id, label)}
           onSetbacksChange={handleSetbacksChange}
+          onLayoutSave={(next, summaries) => handleLayoutSave(pkg.concept.id, next, summaries)}
           review={review}
         />
       ))}
