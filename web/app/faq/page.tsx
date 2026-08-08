@@ -40,7 +40,7 @@ const FAQS: [string, string][] = [
   ],
   [
     "What does BuildSphere cost?",
-    "Designing and revising concepts is free, and this browser keeps unlimited local projects. A free account additionally syncs three projects to the cloud; BuildSphere Plus — one subscription across web and the mobile apps, started from your account page or inside the apps — lifts the sync limit and includes every premium feature as it arrives. The exact price is always shown before anything is charged, and anything you already synced stays yours.",
+    "Your account is free, and designing and revising concepts costs nothing — this browser keeps unlimited local projects, and a free account syncs three to the cloud. When one project is ready to go further, you license that home once: one price, one home, no monthly subscription. Tiers run from BuildSphere Concept at $695 to BuildSphere Build+ at $3,495 per project, each with real included allowances of renders and revision rounds — see onbuildsphere.com/pricing. The exact price is always shown on the secure checkout page before anything is charged, and anything you already synced stays yours.",
   ],
   [
     "Can I take my data and leave?",

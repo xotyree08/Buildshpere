@@ -49,10 +49,11 @@ const SECTIONS: [string, string[]][] = [
     ],
   ],
   [
-    "Subscriptions",
+    "Project licenses and payments",
     [
-      "Core design features are free during the platform's early phase. BuildSphere Plus is one subscription that covers the website and the mobile apps, however you purchase it.",
-      "Purchased through the Apple App Store or Google Play, it renews and cancels through your store account and is governed additionally by that store's terms. Purchased on the web, payment is processed by Stripe and you can manage or cancel it from your account page. Prices are shown before any charge; cancellation stops future renewals and leaves already-paid periods active.",
+      "BuildSphere accounts are free, and core design features are free to explore. Paid features are sold as one-time project licenses: one license covers one primary residential structure on one property, and includes the usage allowances (renders, revision rounds, walkthroughs) stated for its tier at purchase. There is no recurring subscription and nothing renews automatically.",
+      "Payments are processed by Stripe; every price is shown on the checkout page before you confirm, and nothing on this site charges you without that confirmation. Licenses and add-on packs attach to the specific project you purchase them for and are not transferable to a different home or property. The Build+ tier includes a stated period of active construction access from the purchase date.",
+      "Because a license's included allowances begin to be consumed as you use them, refunds are handled case by case — write to support@onbuildsphere.com and a human will look at your situation.",
     ],
   ],
   [

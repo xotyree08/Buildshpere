@@ -5,18 +5,15 @@
 /// headlessly at phone dimensions; never shipped in the store binaries.
 library;
 
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
 import 'api/client.dart';
+import 'license_screen.dart';
 import 'main.dart' show HomeScreen;
 import 'project_detail_screen.dart';
 import 'projects_screen.dart';
-import 'store/gateway.dart';
-import 'store/purchase_service.dart';
-import 'upgrade_screen.dart';
 
 const _projectsJson = {
   'projects': [
@@ -84,38 +81,6 @@ class _DemoTransport implements Transport {
   }
 }
 
-class _DemoGateway implements StoreGateway {
-  final _controller = StreamController<StorePurchase>.broadcast();
-
-  @override
-  Future<bool> isAvailable() async => true;
-
-  @override
-  Future<List<StoreProduct>> queryProducts(Set<String> ids) async => const [
-        StoreProduct(
-          id: 'buildsphere_plus_monthly',
-          title: 'BuildSphere Plus (Monthly)',
-          description: 'Unlimited cloud-synced projects and every premium feature.',
-          price: r'$4.99',
-        ),
-        StoreProduct(
-          id: 'buildsphere_plus_yearly',
-          title: 'BuildSphere Plus (Yearly)',
-          description: 'A year of Plus — two months free.',
-          price: r'$49.99',
-        ),
-      ];
-
-  @override
-  Future<void> buy(StoreProduct product) async {}
-
-  @override
-  Future<void> restorePurchases() async {}
-
-  @override
-  Stream<StorePurchase> get purchases => _controller.stream;
-}
-
 ConceptSummary _demoConcept() {
   final pkg = ((_projectsJson['projects'] as List).first as Map)['packages'] as List;
   final first = pkg.first as Map;
@@ -164,12 +129,7 @@ class _ScreenshotApp extends StatelessWidget {
           ),
         );
       case 'upgrade':
-        final service = PurchaseService(
-          gateway: _DemoGateway(),
-          validateOnServer: (_) async => const ServerVerdict.granted(),
-        );
-        unawaited(service.init());
-        page = UpgradeScreen(service: service);
+        page = const LicenseScreen();
       default:
         page = const HomeScreen();
     }

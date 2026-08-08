@@ -150,6 +150,29 @@ create table if not exists email_verifications (
   used_at timestamp
 );
 create index if not exists email_verifications_user on email_verifications(user_id);
+
+create table if not exists project_licenses (
+  id text primary key,
+  user_id text not null,
+  project_id text not null,
+  tier text not null,
+  status text not null,
+  source text not null,
+  purchased_at timestamp not null,
+  expires_at timestamp
+);
+create unique index if not exists project_licenses_project on project_licenses(project_id);
+create index if not exists project_licenses_user on project_licenses(user_id);
+
+create table if not exists usage_credits (
+  id text primary key,
+  license_id text not null,
+  kind text not null,
+  delta integer not null,
+  note text,
+  created_at timestamp not null
+);
+create index if not exists usage_credits_license on usage_credits(license_id, kind);
 `;
 
 /** Minimal query surface both pg.Pool and the test engine satisfy. */
@@ -285,6 +308,17 @@ export async function ensureSchema(db: Db): Promise<void> {
   );
   if (verifications.rows.length === 0) {
     const start = SCHEMA_SQL.indexOf("create table if not exists email_verifications");
+    const end = SCHEMA_SQL.indexOf("create table if not exists project_licenses");
+    for (const statement of SCHEMA_SQL.slice(start, end).split(";")) {
+      const sql = statement.trim();
+      if (sql) await db.query(sql);
+    }
+  }
+  const licenses = await db.query(
+    "select 1 from information_schema.tables where table_name = 'project_licenses'",
+  );
+  if (licenses.rows.length === 0) {
+    const start = SCHEMA_SQL.indexOf("create table if not exists project_licenses");
     for (const statement of SCHEMA_SQL.slice(start).split(";")) {
       const sql = statement.trim();
       if (sql) await db.query(sql);

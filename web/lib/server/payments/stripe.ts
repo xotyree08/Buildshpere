@@ -1,67 +1,60 @@
 /**
- * Stripe seam for web subscriptions. Same iron rules as the store
- * validators (L1/L2/L4): entitlements are never client-writable — the
- * only web write path is a signature-verified Stripe webhook — and an
- * unconfigured deployment refuses loudly with the exact fix. No Stripe
- * SDK: two REST calls and an HMAC keep the dependency surface at zero.
+ * Stripe seam for project licenses. Same iron rules as the store
+ * validators (L1/L2/L4): licenses are never client-writable — the only
+ * write path is a signature-verified Stripe webhook — and an unconfigured
+ * deployment refuses loudly with the exact fix. No Stripe SDK: two REST
+ * calls and an HMAC keep the dependency surface at zero.
+ *
+ * Pricing model (handoff §24): one home = one project license, purchased
+ * once — mode "payment", never "subscription". Prices ride inline as
+ * price_data from the catalog, so the dashboard needs no product setup at
+ * all: an API key and a webhook are the entire Stripe configuration.
  */
 
 import { createHmac, timingSafeEqual } from "crypto";
 
+import { addonInfo, formatCents, tierInfo, type LicenseTier } from "../../catalog/licenses";
 import type { Db } from "../db";
-import { recordEntitlement } from "./index";
+import { addCredits, getLicense, grantLicense } from "../licenses";
 
 export interface StripeEnv {
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
-  STRIPE_PRICE_MONTHLY?: string;
-  STRIPE_PRICE_YEARLY?: string;
 }
 
 export const STRIPE_UNCONFIGURED =
-  "Web subscriptions are not configured on this deployment — set STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PRICE_MONTHLY, and STRIPE_PRICE_YEARLY, then redeploy. Nothing was charged.";
-
-export type StripePlan = "monthly" | "yearly";
-
-/** The same product ids the mobile stores use, so one entitlement row serves all platforms. */
-export const PLAN_PRODUCTS: Record<StripePlan, string> = {
-  monthly: "buildsphere_plus_monthly",
-  yearly: "buildsphere_plus_yearly",
-};
+  "Web payments are not configured on this deployment — set STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET, then redeploy. Nothing was charged.";
 
 export function stripeConfigured(env: StripeEnv): boolean {
-  return Boolean(
-    env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET && env.STRIPE_PRICE_MONTHLY && env.STRIPE_PRICE_YEARLY,
-  );
+  return Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_WEBHOOK_SECRET);
 }
 
 export type FetchLike = (url: string, init: RequestInit) => Promise<{ status: number; json(): Promise<unknown> }>;
 
-/**
- * Create a Checkout Session and return its redirect URL. The user id
- * rides in client_reference_id and metadata so the webhook can grant
- * the entitlement to the right account without trusting the client.
- */
-export async function createCheckoutSession(
+async function createPaymentSession(
   env: StripeEnv,
   fetchFn: FetchLike,
-  opts: { userId: string; email: string; plan: StripePlan; successUrl: string; cancelUrl: string },
+  opts: {
+    email: string;
+    productName: string;
+    amountCents: number;
+    successUrl: string;
+    cancelUrl: string;
+    metadata: Record<string, string>;
+  },
 ): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   if (!stripeConfigured(env)) return { ok: false, error: STRIPE_UNCONFIGURED };
-  const price = opts.plan === "yearly" ? env.STRIPE_PRICE_YEARLY! : env.STRIPE_PRICE_MONTHLY!;
   const body = new URLSearchParams({
-    mode: "subscription",
-    "line_items[0][price]": price,
+    mode: "payment",
+    "line_items[0][price_data][currency]": "usd",
+    "line_items[0][price_data][product_data][name]": opts.productName,
+    "line_items[0][price_data][unit_amount]": String(opts.amountCents),
     "line_items[0][quantity]": "1",
     success_url: opts.successUrl,
     cancel_url: opts.cancelUrl,
-    client_reference_id: opts.userId,
     customer_email: opts.email,
-    "metadata[userId]": opts.userId,
-    "metadata[productId]": PLAN_PRODUCTS[opts.plan],
-    "subscription_data[metadata][userId]": opts.userId,
-    "subscription_data[metadata][productId]": PLAN_PRODUCTS[opts.plan],
   });
+  for (const [k, v] of Object.entries(opts.metadata)) body.set(`metadata[${k}]`, v);
   try {
     const res = await fetchFn("https://api.stripe.com/v1/checkout/sessions", {
       method: "POST",
@@ -82,41 +75,43 @@ export async function createCheckoutSession(
 }
 
 /**
- * Open Stripe's Billing Portal for the user's subscription — the manage/
- * cancel path the Terms promise. The customer is looked up by the
- * account's email, so a session can never open someone else's billing.
+ * One-time checkout for a project license. The user and project ids ride
+ * in metadata so the webhook can attach the license to the right project
+ * without trusting the client at grant time.
  */
-export async function createPortalSession(
+export async function createLicenseCheckout(
   env: StripeEnv,
   fetchFn: FetchLike,
-  opts: { email: string; returnUrl: string },
+  opts: { userId: string; email: string; projectId: string; tier: LicenseTier; successUrl: string; cancelUrl: string },
 ): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
-  if (!env.STRIPE_SECRET_KEY) return { ok: false, error: STRIPE_UNCONFIGURED };
-  const auth = { authorization: `Bearer ${env.STRIPE_SECRET_KEY}` };
-  try {
-    const lookup = await fetchFn(
-      `https://api.stripe.com/v1/customers?email=${encodeURIComponent(opts.email)}&limit=1`,
-      { method: "GET", headers: auth },
-    );
-    const found = (await lookup.json()) as { data?: { id?: string }[] };
-    const customer = found.data?.[0]?.id;
-    if (lookup.status !== 200 || !customer) {
-      return { ok: false, error: "No web subscription is on file for this account's email." };
-    }
-    const body = new URLSearchParams({ customer, return_url: opts.returnUrl });
-    const res = await fetchFn("https://api.stripe.com/v1/billing_portal/sessions", {
-      method: "POST",
-      headers: { ...auth, "content-type": "application/x-www-form-urlencoded" },
-      body: body.toString(),
-    });
-    const data = (await res.json()) as { url?: string; error?: { message?: string } };
-    if (res.status !== 200 || !data.url) {
-      return { ok: false, error: data.error?.message ?? `Stripe refused the portal session (HTTP ${res.status}).` };
-    }
-    return { ok: true, url: data.url };
-  } catch {
-    return { ok: false, error: "Could not reach Stripe — try again in a moment." };
-  }
+  const info = tierInfo(opts.tier);
+  if (!info) return { ok: false, error: `Unknown license tier: ${opts.tier}` };
+  return createPaymentSession(env, fetchFn, {
+    email: opts.email,
+    productName: `${info.label} — project license (${formatCents(info.priceCents)}, one-time)`,
+    amountCents: info.priceCents,
+    successUrl: opts.successUrl,
+    cancelUrl: opts.cancelUrl,
+    metadata: { kind: "license", userId: opts.userId, projectId: opts.projectId, tier: opts.tier },
+  });
+}
+
+/** One-time checkout for a usage add-on pack on an already-licensed project. */
+export async function createAddonCheckout(
+  env: StripeEnv,
+  fetchFn: FetchLike,
+  opts: { userId: string; email: string; projectId: string; addon: string; successUrl: string; cancelUrl: string },
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const info = addonInfo(opts.addon);
+  if (!info) return { ok: false, error: `Unknown add-on: ${opts.addon}` };
+  return createPaymentSession(env, fetchFn, {
+    email: opts.email,
+    productName: `BuildSphere — ${info.label}`,
+    amountCents: info.priceCents,
+    successUrl: opts.successUrl,
+    cancelUrl: opts.cancelUrl,
+    metadata: { kind: "addon", userId: opts.userId, projectId: opts.projectId, addon: info.key },
+  });
 }
 
 /**
@@ -153,33 +148,36 @@ export function verifyStripeSignature(
 }
 
 /**
- * Apply a verified webhook event. Grants on completed checkouts; a
- * canceled subscription marks the entitlement canceled. Unknown event
- * types are acknowledged and ignored — Stripe sends many.
+ * Apply a verified webhook event. Completed license checkouts grant (or
+ * upgrade) the project's license; completed add-on checkouts append the
+ * pack's credits. Unknown event types are acknowledged and ignored —
+ * Stripe sends many.
  */
 export async function handleStripeEvent(db: Db, event: unknown): Promise<{ handled: string }> {
   const e = (event ?? {}) as { type?: string; data?: { object?: Record<string, unknown> } };
+  if (e.type !== "checkout.session.completed") return { handled: `ignored: ${e.type ?? "unknown"}` };
+
   const obj = e.data?.object ?? {};
   const metadata = (obj.metadata ?? {}) as Record<string, unknown>;
+  const userId = String(metadata.userId ?? "");
+  const projectId = String(metadata.projectId ?? "");
+  if (!userId || !projectId) return { handled: "ignored: completed session without user/project metadata" };
 
-  if (e.type === "checkout.session.completed") {
-    const userId = typeof obj.client_reference_id === "string" ? obj.client_reference_id : String(metadata.userId ?? "");
-    const productId = String(metadata.productId ?? "");
-    if (!userId || !productId) return { handled: "ignored: completed session without user/product metadata" };
-    await recordEntitlement(db, userId, productId, "stripe");
-    return { handled: `granted ${productId}` };
+  if (metadata.kind === "license") {
+    const tier = tierInfo(String(metadata.tier ?? ""));
+    if (!tier) return { handled: `ignored: completed session with unknown tier ${String(metadata.tier)}` };
+    await grantLicense(db, { userId, projectId, tier: tier.key, source: "stripe" });
+    return { handled: `licensed ${projectId} as ${tier.key}` };
   }
 
-  if (e.type === "customer.subscription.deleted") {
-    const userId = String(metadata.userId ?? "");
-    const productId = String(metadata.productId ?? "");
-    if (!userId || !productId) return { handled: "ignored: deleted subscription without metadata" };
-    await db.query(
-      "update entitlements set status = 'canceled', updated_at = $1 where user_id = $2 and product_id = $3",
-      [new Date().toISOString(), userId, productId],
-    );
-    return { handled: `canceled ${productId}` };
+  if (metadata.kind === "addon") {
+    const addon = addonInfo(String(metadata.addon ?? ""));
+    if (!addon) return { handled: `ignored: completed session with unknown addon ${String(metadata.addon)}` };
+    const license = await getLicense(db, userId, projectId);
+    if (!license) return { handled: `ignored: addon for unlicensed project ${projectId}` };
+    await addCredits(db, license.id, addon.grants.kind, addon.grants.amount, addon.label);
+    return { handled: `credited ${addon.grants.amount} ${addon.grants.kind} to ${projectId}` };
   }
 
-  return { handled: `ignored: ${e.type ?? "unknown"}` };
+  return { handled: "ignored: completed session without a known kind" };
 }

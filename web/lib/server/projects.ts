@@ -12,21 +12,13 @@ import type { Db } from "./db";
 /** Cloud-synced projects included free. Local projects stay unlimited. */
 export const FREE_SYNC_LIMIT = 3;
 
-export const PLUS_REQUIRED_MESSAGE =
-  `The free tier syncs ${FREE_SYNC_LIMIT} projects to your account — this browser keeps unlimited local projects either way. BuildSphere Plus (account page) lifts the sync limit.`;
-
-/** Whether the user holds an active Plus entitlement on any platform. */
-export async function hasPlus(db: Db, userId: string): Promise<boolean> {
-  const res = await db.query(
-    "select 1 from entitlements where user_id = $1 and product_id like 'buildsphere_plus%' and status = 'active' limit 1",
-    [userId],
-  );
-  return res.rows.length > 0;
-}
+export const LICENSE_SYNC_MESSAGE =
+  `The free tier syncs ${FREE_SYNC_LIMIT} projects to your account — this browser keeps unlimited local projects either way. A licensed project always syncs: see onbuildsphere.com/pricing.`;
 
 /**
  * Free-tier gate for NEW project syncs. Updates to already-synced projects
- * always pass — nothing a customer already has moves behind the paywall.
+ * always pass — nothing a customer already has moves behind the paywall —
+ * and a project holding a license always syncs regardless of the free cap.
  */
 export async function canSyncNewProject(db: Db, ownerId: string, projectId: string): Promise<boolean> {
   const existing = await db.query(
@@ -36,7 +28,11 @@ export async function canSyncNewProject(db: Db, ownerId: string, projectId: stri
   if (existing.rows.length > 0) return true;
   const count = await db.query("select count(*) as n from projects where owner_id = $1", [ownerId]);
   if (Number(count.rows[0]?.n ?? 0) < FREE_SYNC_LIMIT) return true;
-  return hasPlus(db, ownerId);
+  const licensed = await db.query(
+    "select 1 from project_licenses where project_id = $1 and user_id = $2 and status = 'active' limit 1",
+    [projectId, ownerId],
+  );
+  return licensed.rows.length > 0;
 }
 
 export async function upsertProject(db: Db, ownerId: string, entry: StoredProject): Promise<void> {

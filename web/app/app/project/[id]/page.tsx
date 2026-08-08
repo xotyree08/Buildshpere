@@ -9,6 +9,7 @@ import { FloorPlan } from "@/components/FloorPlan";
 import { ElectricalPlanView } from "@/components/ElectricalPlanView";
 import { PlumbingPlanView } from "@/components/PlumbingPlanView";
 import { MassingView } from "@/components/MassingView";
+import { LicensePanel } from "@/components/LicensePanel";
 import { ReviewSection, type Review } from "@/components/ReviewSection";
 import { SitePlanView } from "@/components/SitePlanView";
 import { Viewer3D } from "@/components/Viewer3D";
@@ -131,6 +132,7 @@ function ConceptCard({
   constraints,
   finishes,
   interiorScheme,
+  projectId,
   onRevise,
   onApplyVe,
   onRollback,
@@ -146,6 +148,7 @@ function ConceptCard({
   constraints?: SiteConstraint[];
   finishes?: FinishSelections;
   interiorScheme?: string;
+  projectId: string;
   expanded: boolean;
   onToggle: () => void;
   onRevise: (text: string) => Promise<string | null>;
@@ -287,7 +290,7 @@ function ConceptCard({
         </div>
       ) : view === "viewer3d" ? (
         <div style={{ margin: "0.75rem 0" }}>
-          <Viewer3D model={model} style={concept.style} finishes={finishes} interiorScheme={interiorScheme} />
+          <Viewer3D model={model} style={concept.style} finishes={finishes} interiorScheme={interiorScheme} projectId={projectId} />
         </div>
       ) : view === "elevations" ? (
         <div style={{ margin: "0.75rem 0", display: "flex", gap: "1.5rem", flexWrap: "wrap" }}>
@@ -1023,6 +1026,8 @@ export default function ProjectPage() {
 
       <ConstraintRegister constraints={entry.constraints ?? []} onChange={handleConstraintsChange} />
 
+      <LicensePanel projectId={project.id} signedIn={signedIn} />
+
       <ReviewSection
         projectId={project.id}
         projectName={project.name}
@@ -1042,6 +1047,7 @@ export default function ProjectPage() {
           constraints={entry.constraints}
           finishes={entry.finishes}
           interiorScheme={entry.interiorScheme}
+          projectId={project.id}
           expanded={expanded === pkg.concept.id}
           onToggle={() => setExpanded(expanded === pkg.concept.id ? null : pkg.concept.id)}
           onRevise={(text) => handleRevise(pkg.concept.id, text)}

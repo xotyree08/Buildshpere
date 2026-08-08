@@ -3,15 +3,21 @@
 For an assistant driving the owner's browser (or the owner directly).
 Work top to bottom. All identity values are locked — use them exactly.
 
+Pricing model: **one home = one project license**, purchased once on the
+web. There are NO subscriptions and NO in-app purchases — do not create
+subscription products in Stripe, Play, or App Store Connect. (An older
+version of this playbook described $4.99/$49.99 subscriptions; that model
+is retired. If any were already created, archive them unused.)
+
 | Value | Locked setting |
 | --- | --- |
 | App / product name | BuildSphere |
 | Bundle / application id | `com.onbuildsphere.app` |
-| Subscription ids | `buildsphere_plus_monthly`, `buildsphere_plus_yearly` |
-| Prices | $4.99/month, $49.99/year |
+| License tiers (web only) | Concept $695 · Design $1,495 · Complete $2,495 · Build+ $3,495 — one-time, per project |
 | Privacy policy | https://onbuildsphere.com/privacy |
 | Terms | https://onbuildsphere.com/terms |
 | Support | https://onbuildsphere.com/faq |
+| Pricing page | https://onbuildsphere.com/pricing |
 | Webhook (Stripe) | `https://onbuildsphere.com/api/v1/purchases/stripe/webhook` |
 | Vercel project | `buildshpere` (team xotyree-9876s-projects) |
 
@@ -20,29 +26,30 @@ folder (`playstore/`, `screenshots/`).
 
 ## 1. Stripe → live web payments (do first)
 
+No products or prices need to be created in the dashboard — the site
+sends each license's price with the checkout itself. Stripe setup is
+just an API key and a webhook:
+
 1. dashboard.stripe.com — complete any "Activate payments" banner.
-2. Product catalog → **+ Add product** → name `BuildSphere Plus`.
-   - Price 1: Recurring, Monthly, **$4.99** → save → copy its `price_…` id.
-   - Same product → **Add another price**: Recurring, Yearly, **$49.99**
-     → save → copy that `price_…` id.
-3. Developers → API keys → copy the **Secret key** (`sk_live_…`).
-4. Developers → Webhooks → **+ Add endpoint**:
+2. Developers → API keys → copy the **Secret key** (`sk_live_…`).
+3. Developers → Webhooks → **+ Add endpoint**:
    - Endpoint URL: the webhook URL from the table above.
-   - Events: `checkout.session.completed`, `customer.subscription.deleted`.
+   - Events: `checkout.session.completed` (only this one).
    - Save → open the endpoint → **Reveal signing secret** (`whsec_…`).
-5. Settings → Billing → **Customer portal** → Activate (default config is
-   fine) — this powers the site's "Manage or cancel" button.
-6. vercel.com → project `buildshpere` → Settings → Environment Variables —
+4. vercel.com → project `buildshpere` → Settings → Environment Variables —
    add for Production:
    - `STRIPE_SECRET_KEY` = the `sk_live_…` key
    - `STRIPE_WEBHOOK_SECRET` = the `whsec_…` secret
-   - `STRIPE_PRICE_MONTHLY` = the monthly `price_…` id
-   - `STRIPE_PRICE_YEARLY` = the yearly `price_…` id
-7. Deployments → ⋯ on the latest → **Redeploy**.
-8. Verify: onbuildsphere.com/app/account → sign in → "Plus monthly"
-   should open a real Stripe checkout showing $4.99.
+5. Deployments → ⋯ on the latest → **Redeploy**.
+6. Verify: onbuildsphere.com/app → open a project → "Project license"
+   panel → "License this project" should open a real Stripe checkout
+   showing the tier's one-time price.
 
 ## 2. Google Play Console
+
+The app sells nothing — it is a free companion to the web platform, so
+skip the Monetize section entirely. No subscriptions, no in-app
+products, no service-account/receipt credentials needed.
 
 1. play.google.com/console → **Create app**: BuildSphere, App, Free,
    accept declarations.
@@ -58,19 +65,7 @@ folder (`playstore/`, `screenshots/`).
    - Content rating questionnaire: utility/productivity, none of the
      sensitive content applies → rated Everyone.
    - Ads: No.
-4. Monetize → Subscriptions → **Create subscription**:
-   - id `buildsphere_plus_monthly` → base plan id `monthly`,
-     auto-renewing, monthly, $4.99.
-   - id `buildsphere_plus_yearly` → base plan id `yearly`,
-     auto-renewing, yearly, $49.99.
-5. Receipt validation credentials (for the server):
-   - Setup → API access → create/link a Google Cloud project → create a
-     **service account** with role "Service Account User", grant it
-     access in Play Console (Financial data not required; "View app
-     information and manage orders" is enough), create a JSON key.
-   - Vercel env: `GOOGLE_SERVICE_ACCOUNT_JSON` = the JSON file contents,
-     `ANDROID_PACKAGE_NAME` = `com.onbuildsphere.app` → redeploy.
-6. The app bundle (needs Flutter on a computer, ~15 min):
+4. The app bundle (needs Flutter on a computer, ~15 min):
    - Install Flutter: docs.flutter.dev/get-started
    - `git clone https://github.com/xotyree08/Buildshpere && cd Buildshpere/mobile`
    - Follow `STORE_LISTING.md` § "Android release signing" (keystore +
@@ -80,6 +75,9 @@ folder (`playstore/`, `screenshots/`).
      `build/app/outputs/bundle/release/app-release.aab`.
 
 ## 3. App Store Connect (upload step needs a Mac)
+
+Same rule: no in-app purchases, no subscription groups, no shared
+secret. The app is a free companion; skip every monetization screen.
 
 1. developer.apple.com/account → Certificates, IDs & Profiles →
    Identifiers → **+** → App IDs → App → Explicit bundle id
@@ -92,11 +90,7 @@ folder (`playstore/`, `screenshots/`).
    upload the four `screenshots/ios-*.png` (6.7-inch size).
 5. App Privacy questionnaire: collects Email (account), User Content
    (projects, linked to the user); no tracking, no ads.
-6. Monetization → Subscriptions → create group `BuildSphere Plus` →
-   two auto-renewable subscriptions with the locked ids and prices.
-7. App Information → App-Specific Shared Secret → Generate → Vercel env
-   `APPLE_SHARED_SECRET` → redeploy.
-8. Binary (Mac only): open `mobile/ios/Runner.xcworkspace` in Xcode,
+6. Binary (Mac only): open `mobile/ios/Runner.xcworkspace` in Xcode,
    sign in, let Xcode manage signing; then
    `flutter build ipa --dart-define=BUILDSPHERE_API=https://onbuildsphere.com`
    and upload with Xcode Organizer or Transporter.

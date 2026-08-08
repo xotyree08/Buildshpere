@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { createUser, type AuthUser } from "./auth";
 import { ensureSchema, type Db } from "./db";
-import { recordEntitlement } from "./payments/index";
-import { canSyncNewProject, FREE_SYNC_LIMIT, hasPlus, upsertProject } from "./projects";
+import { grantLicense } from "./licenses";
+import { canSyncNewProject, FREE_SYNC_LIMIT, upsertProject } from "./projects";
 import type { StoredProject } from "../store";
 
 async function testDb(): Promise<Db> {
@@ -56,19 +56,12 @@ describe("free-tier sync gate (never retroactive)", () => {
     expect(await canSyncNewProject(db, user.id, "p0")).toBe(true);
   });
 
-  it("an active Plus entitlement on any platform lifts the limit", async () => {
+  it("a licensed project syncs past the free cap", async () => {
     for (let i = 0; i < FREE_SYNC_LIMIT; i++) await upsertProject(db, user.id, entry(`p${i}`));
-    await recordEntitlement(db, user.id, "buildsphere_plus_monthly", "stripe");
-    expect(await hasPlus(db, user.id)).toBe(true);
-    expect(await canSyncNewProject(db, user.id, "p-plus")).toBe(true);
-  });
-
-  it("a canceled subscription does not count as Plus", async () => {
-    await recordEntitlement(db, user.id, "buildsphere_plus_yearly", "apple");
-    await db.query("update entitlements set status = 'canceled' where user_id = $1", [user.id]);
-    expect(await hasPlus(db, user.id)).toBe(false);
-    for (let i = 0; i < FREE_SYNC_LIMIT; i++) await upsertProject(db, user.id, entry(`p${i}`));
-    expect(await canSyncNewProject(db, user.id, "p-one-more")).toBe(false);
+    await grantLicense(db, { userId: user.id, projectId: "p-licensed", tier: "concept", source: "stripe" });
+    expect(await canSyncNewProject(db, user.id, "p-licensed")).toBe(true);
+    // The license belongs to one project — it does not unlock a different one.
+    expect(await canSyncNewProject(db, user.id, "p-unlicensed")).toBe(false);
   });
 
   it("one user's project count never gates another user", async () => {

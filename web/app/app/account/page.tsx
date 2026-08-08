@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { PlusCard } from "@/components/PlusCard";
+import { LicensesCard } from "@/components/LicensesCard";
 import { fetchMe, login, logout, signup, syncNow, type AuthUser } from "@/lib/sync";
 import { setAccountEmail } from "@/lib/store";
 
@@ -200,7 +200,7 @@ export default function AccountPage() {
             </>
           )}
         </div>
-        <PlusCard />
+        <LicensesCard />
         </>
       ) : (
         <form className="card" style={{ maxWidth: 520 }} onSubmit={submit}>

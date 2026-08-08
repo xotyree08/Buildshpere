@@ -1,0 +1,202 @@
+/**
+ * Project licenses: the server-held record of what each PROJECT is entitled
+ * to (handoff §42–43 — entitlement is per project, never a account-wide
+ * unlimited flag). Same iron rule as store entitlements (L1): licenses and
+ * credits are never client-writable — grants arrive only through the
+ * verified Stripe webhook, consumption only through server features.
+ *
+ * Credits are a ledger: the tier's included allowance is written as positive
+ * rows at grant time, add-on packs append more, and every use appends -1.
+ * Remaining = sum(delta) — auditable by inspection, no counters to drift.
+ */
+
+import { randomUUID } from "crypto";
+
+import { tierInfo, type CreditKind, type LicenseTier } from "../catalog/licenses";
+import type { Db } from "./db";
+
+export interface ProjectLicense {
+  id: string;
+  projectId: string;
+  tier: LicenseTier;
+  status: string;
+  purchasedAt: string;
+  expiresAt: string | null;
+  /** Remaining usable credits by kind (allowance + add-ons − consumed). */
+  remaining: Partial<Record<CreditKind, number>>;
+  /** What the tier originally included, for "5 of 7 remaining" displays. */
+  allowances: Partial<Record<CreditKind, number>>;
+}
+
+export const LICENSE_REQUIRED_MESSAGE =
+  "This feature needs a project license. Each home is licensed once — one price, no subscription. See onbuildsphere.com/pricing, or license the project from its page.";
+
+export function creditExhaustedMessage(kind: CreditKind): string {
+  const names: Record<CreditKind, string> = {
+    major_revision: "major revisions",
+    premium_render: "premium renders",
+    walkthrough: "walkthroughs",
+    scene_360: "360° scenes",
+    design_direction: "design directions",
+    property_analysis: "property analyses",
+  };
+  return `This project has used all of its included ${names[kind]}. Add-on packs on the project page top it up — nothing is charged until you confirm on the checkout page.`;
+}
+
+/**
+ * Grant (or upgrade) the one license a project can hold. Granting writes the
+ * tier's included allowances into the credit ledger; upgrading a project that
+ * already holds a license adds only the allowance DIFFERENCE per kind, so
+ * credits already consumed stay consumed and nothing is double-granted.
+ */
+export async function grantLicense(
+  db: Db,
+  opts: { userId: string; projectId: string; tier: LicenseTier; source: string },
+): Promise<{ licenseId: string }> {
+  const info = tierInfo(opts.tier);
+  if (!info) throw new Error(`Unknown license tier: ${opts.tier}`);
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const expiresAt = info.accessMonths
+    ? new Date(now.getTime() + info.accessMonths * 30.44 * 24 * 3600 * 1000).toISOString()
+    : null;
+
+  const existing = await db.query(
+    "select id, tier from project_licenses where project_id = $1 and user_id = $2",
+    [opts.projectId, opts.userId],
+  );
+  if (existing.rows.length > 0) {
+    const licenseId = String(existing.rows[0].id);
+    const prior = tierInfo(String(existing.rows[0].tier));
+    await db.query(
+      "update project_licenses set tier = $1, status = 'active', source = $2, expires_at = $3 where id = $4",
+      [opts.tier, opts.source, expiresAt, licenseId],
+    );
+    for (const [kind, amount] of Object.entries(info.allowances)) {
+      const delta = amount - (prior?.allowances[kind as CreditKind] ?? 0);
+      if (delta > 0) {
+        await db.query(
+          "insert into usage_credits (id, license_id, kind, delta, note, created_at) values ($1, $2, $3, $4, $5, $6)",
+          [randomUUID(), licenseId, kind, delta, `upgrade to ${info.label}`, nowIso],
+        );
+      }
+    }
+    return { licenseId };
+  }
+
+  const licenseId = randomUUID();
+  await db.query(
+    `insert into project_licenses (id, user_id, project_id, tier, status, source, purchased_at, expires_at)
+     values ($1, $2, $3, $4, 'active', $5, $6, $7)`,
+    [licenseId, opts.userId, opts.projectId, opts.tier, opts.source, nowIso, expiresAt],
+  );
+  for (const [kind, amount] of Object.entries(info.allowances)) {
+    await db.query(
+      "insert into usage_credits (id, license_id, kind, delta, note, created_at) values ($1, $2, $3, $4, $5, $6)",
+      [randomUUID(), licenseId, kind, amount, `included with ${info.label}`, nowIso],
+    );
+  }
+  return { licenseId };
+}
+
+/** Add-on top-up — reached only from the verified webhook. */
+export async function addCredits(
+  db: Db,
+  licenseId: string,
+  kind: CreditKind,
+  amount: number,
+  note: string,
+): Promise<void> {
+  await db.query(
+    "insert into usage_credits (id, license_id, kind, delta, note, created_at) values ($1, $2, $3, $4, $5, $6)",
+    [randomUUID(), licenseId, kind, amount, note, new Date().toISOString()],
+  );
+}
+
+async function remainingByKind(db: Db, licenseId: string): Promise<Partial<Record<CreditKind, number>>> {
+  const res = await db.query(
+    "select kind, sum(delta) as remaining from usage_credits where license_id = $1 group by kind",
+    [licenseId],
+  );
+  const out: Partial<Record<CreditKind, number>> = {};
+  for (const row of res.rows) out[String(row.kind) as CreditKind] = Number(row.remaining);
+  return out;
+}
+
+function rowToLicense(row: Record<string, unknown>): Omit<ProjectLicense, "remaining" | "allowances"> {
+  const expires = row.expires_at;
+  return {
+    id: String(row.id),
+    projectId: String(row.project_id),
+    tier: String(row.tier) as LicenseTier,
+    status: String(row.status),
+    purchasedAt: new Date(String(row.purchased_at)).toISOString(),
+    expiresAt: expires ? new Date(String(expires)).toISOString() : null,
+  };
+}
+
+/** The license a user's project holds, with live balances; null if none. */
+export async function getLicense(db: Db, userId: string, projectId: string): Promise<ProjectLicense | null> {
+  const res = await db.query(
+    "select * from project_licenses where project_id = $1 and user_id = $2",
+    [projectId, userId],
+  );
+  if (res.rows.length === 0) return null;
+  const base = rowToLicense(res.rows[0]);
+  return {
+    ...base,
+    remaining: await remainingByKind(db, base.id),
+    allowances: tierInfo(base.tier)?.allowances ?? {},
+  };
+}
+
+/** All of a user's licenses with balances, newest purchase first. */
+export async function listLicenses(db: Db, userId: string): Promise<ProjectLicense[]> {
+  const res = await db.query(
+    "select * from project_licenses where user_id = $1 order by purchased_at desc",
+    [userId],
+  );
+  const out: ProjectLicense[] = [];
+  for (const row of res.rows) {
+    const base = rowToLicense(row);
+    out.push({
+      ...base,
+      remaining: await remainingByKind(db, base.id),
+      allowances: tierInfo(base.tier)?.allowances ?? {},
+    });
+  }
+  return out;
+}
+
+/** Whether the project holds a usable (active, unexpired) license. */
+export async function hasActiveLicense(db: Db, userId: string, projectId: string): Promise<boolean> {
+  const license = await getLicense(db, userId, projectId);
+  if (!license || license.status !== "active") return false;
+  return !license.expiresAt || new Date(license.expiresAt).getTime() > Date.now();
+}
+
+/**
+ * Spend one credit of a kind. Refuses with a specific reason when the
+ * project is unlicensed, expired, or out of that credit — callers surface
+ * the message verbatim (L2: no silent failure, no silent grant).
+ */
+export async function consumeCredit(
+  db: Db,
+  userId: string,
+  projectId: string,
+  kind: CreditKind,
+  note?: string,
+): Promise<{ ok: true; remaining: number } | { ok: false; error: string }> {
+  const license = await getLicense(db, userId, projectId);
+  if (!license || license.status !== "active") return { ok: false, error: LICENSE_REQUIRED_MESSAGE };
+  if (license.expiresAt && new Date(license.expiresAt).getTime() <= Date.now()) {
+    return { ok: false, error: "This project's Build+ access window has ended — contact support to extend it." };
+  }
+  const remaining = license.remaining[kind] ?? 0;
+  if (remaining <= 0) return { ok: false, error: creditExhaustedMessage(kind) };
+  await db.query(
+    "insert into usage_credits (id, license_id, kind, delta, note, created_at) values ($1, $2, $3, -1, $4, $5)",
+    [randomUUID(), license.id, kind, note ?? "used", new Date().toISOString()],
+  );
+  return { ok: true, remaining: remaining - 1 };
+}

@@ -2,14 +2,14 @@ import { createHmac } from "crypto";
 import { newDb } from "pg-mem";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { addonInfo, tierInfo } from "../../catalog/licenses";
 import { createUser, type AuthUser } from "../auth";
 import { ensureSchema, type Db } from "../db";
-import { listEntitlements } from "./index";
+import { getLicense, grantLicense } from "../licenses";
 import {
-  createCheckoutSession,
-  createPortalSession,
+  createAddonCheckout,
+  createLicenseCheckout,
   handleStripeEvent,
-  PLAN_PRODUCTS,
   STRIPE_UNCONFIGURED,
   stripeConfigured,
   verifyStripeSignature,
@@ -19,8 +19,6 @@ import {
 const ENV: StripeEnv = {
   STRIPE_SECRET_KEY: "sk_test_x",
   STRIPE_WEBHOOK_SECRET: "whsec_test",
-  STRIPE_PRICE_MONTHLY: "price_month",
-  STRIPE_PRICE_YEARLY: "price_year",
 };
 
 function sign(payload: string, secret: string, t: number): string {
@@ -49,32 +47,62 @@ describe("stripe seam (L1: webhook is the only write path)", () => {
   it("refuses loudly when unconfigured — the exact-fix message, nothing charged", async () => {
     expect(stripeConfigured({})).toBe(false);
     expect(stripeConfigured(ENV)).toBe(true);
-    const res = await createCheckoutSession({}, async () => ({ status: 200, json: async () => ({}) }), {
+    const res = await createLicenseCheckout({}, async () => ({ status: 200, json: async () => ({}) }), {
       userId: "u1",
       email: "a@b.co",
-      plan: "monthly",
+      projectId: "p1",
+      tier: "complete",
       successUrl: "s",
       cancelUrl: "c",
     });
     expect(res).toEqual({ ok: false, error: STRIPE_UNCONFIGURED });
   });
 
-  it("checkout carries the user and product in metadata and returns Stripe's URL", async () => {
+  it("license checkout is one-time (mode=payment) with inline price and full metadata", async () => {
     let sent = "";
-    const res = await createCheckoutSession(
+    const res = await createLicenseCheckout(
       ENV,
       async (_url, init) => {
         sent = String(init.body);
         return { status: 200, json: async () => ({ url: "https://checkout.stripe.com/c/pay_x" }) };
       },
-      { userId: "u1", email: "a@b.co", plan: "yearly", successUrl: "s", cancelUrl: "c" },
+      { userId: "u1", email: "a@b.co", projectId: "p1", tier: "complete", successUrl: "s", cancelUrl: "c" },
     );
     expect(res).toEqual({ ok: true, url: "https://checkout.stripe.com/c/pay_x" });
     const params = new URLSearchParams(sent);
-    expect(params.get("mode")).toBe("subscription");
-    expect(params.get("line_items[0][price]")).toBe("price_year");
-    expect(params.get("client_reference_id")).toBe("u1");
-    expect(params.get("metadata[productId]")).toBe(PLAN_PRODUCTS.yearly);
+    expect(params.get("mode")).toBe("payment");
+    expect(params.get("line_items[0][price_data][unit_amount]")).toBe(String(tierInfo("complete")!.priceCents));
+    expect(params.get("metadata[kind]")).toBe("license");
+    expect(params.get("metadata[userId]")).toBe("u1");
+    expect(params.get("metadata[projectId]")).toBe("p1");
+    expect(params.get("metadata[tier]")).toBe("complete");
+  });
+
+  it("addon checkout prices from the catalog and refuses unknown keys", async () => {
+    let sent = "";
+    const res = await createAddonCheckout(
+      ENV,
+      async (_url, init) => {
+        sent = String(init.body);
+        return { status: 200, json: async () => ({ url: "https://checkout.stripe.com/c/pay_a" }) };
+      },
+      { userId: "u1", email: "a@b.co", projectId: "p1", addon: "renders25", successUrl: "s", cancelUrl: "c" },
+    );
+    expect(res).toEqual({ ok: true, url: "https://checkout.stripe.com/c/pay_a" });
+    const params = new URLSearchParams(sent);
+    expect(params.get("mode")).toBe("payment");
+    expect(params.get("line_items[0][price_data][unit_amount]")).toBe(String(addonInfo("renders25")!.priceCents));
+    expect(params.get("metadata[addon]")).toBe("renders25");
+
+    const unknown = await createAddonCheckout(ENV, async () => ({ status: 200, json: async () => ({}) }), {
+      userId: "u1",
+      email: "a@b.co",
+      projectId: "p1",
+      addon: "renders9000",
+      successUrl: "s",
+      cancelUrl: "c",
+    });
+    expect(unknown).toEqual({ ok: false, error: "Unknown add-on: renders9000" });
   });
 
   it("signature verification: valid passes; wrong secret, stale timestamp, garbage all fail", () => {
@@ -89,68 +117,43 @@ describe("stripe seam (L1: webhook is the only write path)", () => {
     expect(verifyStripeSignature(payload, null, "whsec_test", now)).toBe(false);
   });
 
-  it("billing portal: opens for the account's own customer, honest when none exists", async () => {
-    const calls: string[] = [];
-    const withCustomer = await createPortalSession(
-      ENV,
-      async (url, init) => {
-        calls.push(url);
-        if (url.includes("/customers?")) {
-          return { status: 200, json: async () => ({ data: [{ id: "cus_1" }] }) };
-        }
-        expect(String(init.body)).toContain("customer=cus_1");
-        return { status: 200, json: async () => ({ url: "https://billing.stripe.com/p/x" }) };
-      },
-      { email: "buyer@example.com", returnUrl: "r" },
-    );
-    expect(withCustomer).toEqual({ ok: true, url: "https://billing.stripe.com/p/x" });
-    expect(calls[0]).toContain(encodeURIComponent("buyer@example.com"));
-
-    const noCustomer = await createPortalSession(
-      ENV,
-      async () => ({ status: 200, json: async () => ({ data: [] }) }),
-      { email: "nobody@example.com", returnUrl: "r" },
-    );
-    expect(noCustomer).toEqual({ ok: false, error: "No web subscription is on file for this account's email." });
-
-    const unconfigured = await createPortalSession({}, async () => ({ status: 200, json: async () => ({}) }), {
-      email: "a@b.co",
-      returnUrl: "r",
-    });
-    expect(unconfigured).toEqual({ ok: false, error: STRIPE_UNCONFIGURED });
-  });
-
-  it("a completed checkout grants exactly the metadata product to the referenced user", async () => {
+  it("a completed license checkout licenses exactly the metadata project", async () => {
     const result = await handleStripeEvent(db, {
       type: "checkout.session.completed",
-      data: {
-        object: {
-          client_reference_id: user.id,
-          metadata: { userId: user.id, productId: "buildsphere_plus_monthly" },
-        },
-      },
+      data: { object: { metadata: { kind: "license", userId: user.id, projectId: "p1", tier: "design" } } },
     });
-    expect(result.handled).toBe("granted buildsphere_plus_monthly");
-    const owned = await listEntitlements(db, user.id);
-    expect(owned).toEqual([{ productId: "buildsphere_plus_monthly", platform: "stripe", status: "active" }]);
+    expect(result.handled).toBe("licensed p1 as design");
+    const license = await getLicense(db, user.id, "p1");
+    expect(license?.tier).toBe("design");
+    expect(license?.remaining.premium_render).toBe(tierInfo("design")!.allowances.premium_render);
   });
 
-  it("a deleted subscription cancels the entitlement; unknown events are ignored", async () => {
-    await handleStripeEvent(db, {
+  it("a completed addon checkout credits the pack; unlicensed projects get nothing", async () => {
+    const orphan = await handleStripeEvent(db, {
       type: "checkout.session.completed",
-      data: { object: { client_reference_id: user.id, metadata: { productId: "buildsphere_plus_yearly" } } },
+      data: { object: { metadata: { kind: "addon", userId: user.id, projectId: "p1", addon: "renders10" } } },
     });
-    const canceled = await handleStripeEvent(db, {
-      type: "customer.subscription.deleted",
-      data: { object: { metadata: { userId: user.id, productId: "buildsphere_plus_yearly" } } },
-    });
-    expect(canceled.handled).toBe("canceled buildsphere_plus_yearly");
-    expect((await listEntitlements(db, user.id))[0].status).toBe("canceled");
+    expect(orphan.handled).toContain("ignored");
 
+    await grantLicense(db, { userId: user.id, projectId: "p1", tier: "concept", source: "stripe" });
+    const credited = await handleStripeEvent(db, {
+      type: "checkout.session.completed",
+      data: { object: { metadata: { kind: "addon", userId: user.id, projectId: "p1", addon: "renders10" } } },
+    });
+    expect(credited.handled).toBe("credited 10 premium_render to p1");
+    expect((await getLicense(db, user.id, "p1"))?.remaining.premium_render).toBe(20);
+  });
+
+  it("unknown events and forged bare events are inert", async () => {
     const ignored = await handleStripeEvent(db, { type: "invoice.paid", data: { object: {} } });
     expect(ignored.handled).toContain("ignored");
-    // Events without metadata grant nothing (a forged bare event is inert).
     const inert = await handleStripeEvent(db, { type: "checkout.session.completed", data: { object: {} } });
     expect(inert.handled).toContain("ignored");
+    const badTier = await handleStripeEvent(db, {
+      type: "checkout.session.completed",
+      data: { object: { metadata: { kind: "license", userId: user.id, projectId: "p1", tier: "platinum" } } },
+    });
+    expect(badTier.handled).toContain("ignored");
+    expect(await getLicense(db, user.id, "p1")).toBeNull();
   });
 });

@@ -7,7 +7,7 @@ import 'package:buildsphere_mobile/store/gateway.dart';
 import 'package:buildsphere_mobile/store/products.dart';
 import 'package:buildsphere_mobile/store/purchase_service.dart';
 import 'package:buildsphere_mobile/store/server_validator.dart';
-import 'package:buildsphere_mobile/upgrade_screen.dart';
+import 'package:buildsphere_mobile/license_screen.dart';
 
 class FakeGateway implements StoreGateway {
   FakeGateway({this.available = true, List<StoreProduct>? products})
@@ -116,26 +116,16 @@ void main() {
     expect(verdict.message, contains('--dart-define=BUILDSPHERE_API'));
   });
 
-  testWidgets('paywall is honest when billing is unavailable', (tester) async {
-    final service = PurchaseService(
-      gateway: FakeGateway(available: false),
-      validateOnServer: (_) async => const ServerVerdict.granted(),
-    );
-    await service.init();
-    await tester.pumpWidget(MaterialApp(home: UpgradeScreen(service: service)));
-    expect(find.textContaining('store is not available'), findsOneWidget);
-    expect(find.text('Restore purchases'), findsOneWidget);
-  });
-
-  testWidgets('paywall lists store products with prices when ready', (tester) async {
-    final service = PurchaseService(
-      gateway: FakeGateway(),
-      validateOnServer: (_) async => const ServerVerdict.granted(),
-    );
-    await service.init();
-    await tester.pumpWidget(MaterialApp(home: UpgradeScreen(service: service)));
-    expect(find.text('Plus Monthly'), findsOneWidget);
-    expect(find.text(r'$4.99'), findsOneWidget);
+  testWidgets('licensing screen sells nothing: no prices, no purchase buttons', (tester) async {
+    tester.view.physicalSize = const Size(900, 2000);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(const MaterialApp(home: LicenseScreen()));
+    expect(find.textContaining('no monthly subscription'), findsOneWidget);
+    expect(find.text('BuildSphere Complete'), findsOneWidget);
+    expect(find.textContaining(r'$'), findsNothing);
+    expect(find.byType(FilledButton), findsNothing);
+    expect(find.textContaining('licensed professionals'), findsOneWidget);
   });
 
   test('catalog ids are unique and store-safe', () {
