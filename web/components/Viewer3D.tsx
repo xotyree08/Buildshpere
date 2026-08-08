@@ -40,17 +40,20 @@ export function Viewer3D({
   style,
   finishes,
   interiorScheme,
+  projectId,
 }: {
   model: ParametricModel;
   style?: HomeStyle;
   finishes?: FinishSelections;
   /** Interior scheme key; defaults to the style's natural scheme. */
   interiorScheme?: string;
+  /** Photoreal stills bill to this project's license when set. */
+  projectId?: string;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const captureRef = useRef<(() => string) | null>(null);
   const [ready, setReady] = useState(false);
-  const [still, setStill] = useState<{ busy: boolean; image: string | null; error: string | null }>({
+  const [still, setStill] = useState<{ busy: boolean; image: string | null; error: string | null; note?: string | null }>({
     busy: false,
     image: null,
     error: null,
@@ -512,14 +515,22 @@ export function Viewer3D({
       const res = await fetch("/api/v1/render/photoreal", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ imageDataUrl: capture(), style, finishes }),
+        body: JSON.stringify({ imageDataUrl: capture(), style, finishes, projectId }),
       });
-      const body = (await res.json()) as { imageDataUrl?: string; error?: string };
+      const body = (await res.json()) as { imageDataUrl?: string; error?: string; remaining?: number };
       if (!res.ok || !body.imageDataUrl) {
         setStill({ busy: false, image: null, error: body.error ?? "The render failed — try again." });
         return;
       }
-      setStill({ busy: false, image: body.imageDataUrl, error: null });
+      setStill({
+        busy: false,
+        image: body.imageDataUrl,
+        error: null,
+        note:
+          typeof body.remaining === "number"
+            ? `${body.remaining} premium render${body.remaining === 1 ? "" : "s"} remaining on this project's license.`
+            : null,
+      });
     } catch {
       setStill({ busy: false, image: null, error: "Could not reach the server — check your connection." });
     }
@@ -617,7 +628,7 @@ export function Viewer3D({
           <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.35rem 0 0", display: "flex", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
             <span>
               AI-interpreted photograph of this concept — the plans and estimate, not this image,
-              are the source of truth.
+              are the source of truth.{still.note ? ` ${still.note}` : ""}
             </span>
             <a
               className="btn secondary"

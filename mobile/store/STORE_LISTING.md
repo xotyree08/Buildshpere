@@ -1,8 +1,9 @@
 # Store listing — BuildSphere
 
 Everything the store consoles ask for, ready to paste. Identity is
-locked: app id `com.onbuildsphere.app`, subscriptions
-`buildsphere_plus_monthly` and `buildsphere_plus_yearly`.
+locked: app id `com.onbuildsphere.app`. The app is a FREE companion to
+the web platform — it sells nothing in-app. Home projects are licensed
+once (one home = one license, no subscription) on onbuildsphere.com.
 
 ## App name
 
@@ -27,8 +28,9 @@ carry the design through contractor bids, a construction schedule with
 draw payments, and a 30-year maintenance plan.
 
 The mobile app keeps your synced projects in your pocket: every
-concept's floor plan, health score, and estimate breakdown — plus
-BuildSphere Plus, one subscription across web and mobile.
+concept's floor plan, health score, and estimate breakdown. There is no
+subscription — each home is licensed once on the BuildSphere website,
+and everything a licensed project unlocks syncs to the app.
 
 Honest by design: concepts are planning tools, not stamped construction
 documents, and every estimate shows its confidence and provenance. Your
@@ -56,7 +58,7 @@ projects export to a single file anytime — your data is yours.
 - Android launcher icons live in `android/app/src/main/res/mipmap-*`
 
 - `screenshots/ios-*.png` — 1290×2796 phone screenshots (home, sign-in,
-  concept with floor plan, upgrade), captured from the real app via the
+  concept with floor plan, licensing), captured from the real app via the
   web screenshot harness (`lib/screenshots_app.dart`)
 - `screenshots/play-*.png` — the same four at 1080×2340
 - `playstore/feature_graphic_1024x500.png` — Play feature graphic
@@ -86,14 +88,9 @@ these are real app screens, not mockups.
 2. `flutter build ipa --dart-define=BUILDSPHERE_API=https://onbuildsphere.com`
 3. Upload the archive with Xcode Organizer or Transporter.
 
-## Subscriptions to create in each console
+## In-app purchases
 
-| Product id | Period | Store setup |
-| --- | --- | --- |
-| `buildsphere_plus_monthly` | 1 month | App Store: Subscriptions → group "BuildSphere Plus". Play: Subscriptions → base plan `monthly` |
-| `buildsphere_plus_yearly` | 1 year | Same group / base plan `yearly` |
-
-After creating them, put `APPLE_SHARED_SECRET` (App Store Connect → App
-Information → Shared Secret) and `GOOGLE_SERVICE_ACCOUNT_JSON` +
-`ANDROID_PACKAGE_NAME=com.onbuildsphere.app` into Vercel env — receipt
-validation lights up on redeploy.
+None. Do not create subscriptions or in-app products in either console —
+the app sells nothing. Project licenses (Concept $695 / Design $1,495 /
+Complete $2,495 / Build+ $3,495, one-time per project) are purchased on
+onbuildsphere.com; see `CONSOLE_SETUP.md` § Stripe.

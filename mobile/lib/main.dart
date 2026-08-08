@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
 
 import 'api/client.dart';
+import 'license_screen.dart';
 import 'projects_screen.dart';
 import 'spheres.dart';
-import 'store/gateway.dart';
-import 'store/purchase_service.dart';
-import 'store/server_validator.dart';
-import 'upgrade_screen.dart';
 
 void main() {
   runApp(const BuildSphereApp());
@@ -74,16 +71,12 @@ class HomeScreen extends StatelessWidget {
             ),
           Card(
             child: ListTile(
-              title: const Text('BuildSphere Plus'),
-              subtitle: const Text('Support development — benefits activate as Phase 2 ships.'),
+              title: const Text('Project licensing'),
+              subtitle: const Text('One home, one license — no monthly subscription.'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () {
-                final service = PurchaseService(
-                  gateway: PluginStoreGateway(),
-                  validateOnServer: buildServerValidator(),
-                )..init();
                 Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => UpgradeScreen(service: service)),
+                  MaterialPageRoute(builder: (_) => const LicenseScreen()),
                 );
               },
             ),
