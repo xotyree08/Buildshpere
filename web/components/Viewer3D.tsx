@@ -7,6 +7,7 @@ import { Sky } from "three/examples/jsm/objects/Sky.js";
 
 import type { FinishSelections } from "@/lib/catalog/materials";
 import { WALL_HEIGHT_FT } from "@/lib/engine/iso";
+import { buildTour } from "@/lib/engine/walkthrough";
 import { exteriorPalette } from "@/lib/render/palette";
 import { buildScene3D, type Box3 } from "@/lib/render/scene3d";
 import type { HomeStyle, ParametricModel } from "@/lib/types";
@@ -52,7 +53,22 @@ export function Viewer3D({
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const captureRef = useRef<(() => string) | null>(null);
+  /** Walk mode only: place the camera inside a room for a tour shot. */
+  const tourRef = useRef<((roomKey: string) => boolean) | null>(null);
+  /** Walk mode only: which room the camera is standing in right now. */
+  const whereRef = useRef<(() => string) | null>(null);
   const [ready, setReady] = useState(false);
+  const [scene360, setScene360] = useState<{ busy: boolean; image: string | null; error: string | null; note?: string | null }>({
+    busy: false,
+    image: null,
+    error: null,
+  });
+  const [tour, setTour] = useState<{
+    busy: boolean;
+    progress: string | null;
+    shots: { label: string; image: string }[];
+    error: string | null;
+  }>({ busy: false, progress: null, shots: [], error: null });
   const [still, setStill] = useState<{ busy: boolean; image: string | null; error: string | null; note?: string | null }>({
     busy: false,
     image: null,
@@ -448,6 +464,46 @@ export function Viewer3D({
         );
       };
 
+      /**
+       * Stand inside a room and look at its middle. Corners first: standing
+       * in the centre of a furnished room points the camera at a sofa from
+       * two feet away, which photographs as nothing at all.
+       */
+      tourRef.current = (roomKey: string) => {
+        const room = model.rooms.find((r) => r.key === roomKey && r.level === level);
+        if (!room) return false;
+        const [rx, rz, rw, rd] = room.rect;
+        const midX = rx + rw / 2;
+        const midZ = rz + rd / 2;
+        const inset = 1.8;
+        const spots: [number, number][] = [
+          [rx + inset, rz + inset],
+          [rx + rw - inset, rz + inset],
+          [rx + inset, rz + rd - inset],
+          [rx + rw - inset, rz + rd - inset],
+          [midX, midZ],
+        ];
+        const [px, pz] = spots.find(([x, z]) => !blocked(x, z)) ?? [midX, midZ];
+        pos.set(px, eyeBase + EYE_FT, pz);
+        yaw = Math.atan2(midX - px, midZ - pz);
+        pitch = 0;
+        camera.position.copy(pos);
+        camera.lookAt(midX, pos.y, midZ);
+        return true;
+      };
+
+      whereRef.current = () => {
+        const here = model.rooms.find(
+          (r) =>
+            r.level === level &&
+            pos.x >= r.rect[0] &&
+            pos.x <= r.rect[0] + r.rect[2] &&
+            pos.z >= r.rect[1] &&
+            pos.z <= r.rect[1] + r.rect[3],
+        );
+        return here?.label ?? "room";
+      };
+
       walkCleanup = () => {
         window.removeEventListener("keydown", onKeyDown);
         window.removeEventListener("keyup", onKeyUp);
@@ -502,6 +558,8 @@ export function Viewer3D({
       sky.geometry.dispose();
       for (const disp of disposables) disp.dispose();
       captureRef.current = null;
+      tourRef.current = null;
+      whereRef.current = null;
       renderer.dispose();
       mount.removeChild(renderer.domElement);
     };
@@ -536,6 +594,117 @@ export function Viewer3D({
     }
   }
 
+  /** A 360° panorama of the room the camera is standing in. */
+  async function render360() {
+    const capture = captureRef.current;
+    if (!capture) return;
+    setScene360({ busy: true, image: null, error: null });
+    try {
+      const res = await fetch("/api/v1/render/scene360", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          imageDataUrl: capture(),
+          roomLabel: whereRef.current?.() ?? "room",
+          style,
+          interiorScheme,
+          projectId,
+        }),
+      });
+      const body = (await res.json()) as { imageDataUrl?: string; error?: string; remaining?: number };
+      if (!res.ok || !body.imageDataUrl) {
+        setScene360({ busy: false, image: null, error: body.error ?? "The 360° scene failed — try again." });
+        return;
+      }
+      setScene360({
+        busy: false,
+        image: body.imageDataUrl,
+        error: null,
+        note:
+          typeof body.remaining === "number"
+            ? `${body.remaining} 360° scene${body.remaining === 1 ? "" : "s"} remaining on this project's license.`
+            : null,
+      });
+    } catch {
+      setScene360({ busy: false, image: null, error: "Could not reach the server — check your connection." });
+    }
+  }
+
+  /**
+   * A photoreal tour: one interior render per room on this level. The
+   * walkthrough credit is spent once up front; each stop then draws down
+   * that reservation, so a tour costs one walkthrough however long it is.
+   */
+  async function renderTour() {
+    const capture = captureRef.current;
+    const teleport = tourRef.current;
+    if (!capture || !teleport) return;
+    setTour({ busy: true, progress: "Starting the tour…", shots: [], error: null });
+
+    let shots = 0;
+    try {
+      const res = await fetch("/api/v1/render/walkthrough/start", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ projectId }),
+      });
+      const body = (await res.json()) as { shots?: number; error?: string };
+      if (!res.ok || !body.shots) {
+        setTour({ busy: false, progress: null, shots: [], error: body.error ?? "The walkthrough could not be started." });
+        return;
+      }
+      shots = body.shots;
+    } catch {
+      setTour({ busy: false, progress: null, shots: [], error: "Could not reach the server — check your connection." });
+      return;
+    }
+
+    const stops = buildTour(model)
+      .filter((stop) => stop.room.level === level)
+      .slice(0, shots);
+    if (stops.length === 0) {
+      setTour({ busy: false, progress: null, shots: [], error: "This level has no rooms to tour." });
+      return;
+    }
+
+    const done: { label: string; image: string }[] = [];
+    for (let i = 0; i < stops.length; i++) {
+      const stop = stops[i];
+      setTour({ busy: true, progress: `Rendering ${stop.room.label} (${i + 1} of ${stops.length})…`, shots: [...done], error: null });
+      if (!teleport(stop.room.key)) continue;
+      try {
+        const res = await fetch("/api/v1/render/walkthrough/shot", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            imageDataUrl: capture(),
+            roomLabel: stop.room.label,
+            style,
+            interiorScheme,
+            projectId,
+          }),
+        });
+        const body = (await res.json()) as { imageDataUrl?: string; error?: string };
+        if (!res.ok || !body.imageDataUrl) {
+          // Stop at the first real failure rather than burning the rest of
+          // the reservation on something that is already broken.
+          setTour({
+            busy: false,
+            progress: null,
+            shots: done,
+            error: `${body.error ?? "A stop failed."} ${done.length} of ${stops.length} rooms rendered; the stops you didn't use are still on your reservation.`,
+          });
+          return;
+        }
+        done.push({ label: stop.room.label, image: body.imageDataUrl });
+      } catch {
+        setTour({ busy: false, progress: null, shots: done, error: "Could not reach the server — the remaining stops are still reserved." });
+        return;
+      }
+    }
+    setTour({ busy: false, progress: null, shots: done, error: null });
+  }
+
   return (
     <div>
       <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", margin: "0 0 0.4rem", flexWrap: "wrap" }}>
@@ -564,6 +733,28 @@ export function Viewer3D({
         >
           {still.busy ? "Rendering…" : "Photoreal still"}
         </button>
+        {mode === "walk" && (
+          <>
+            <button
+              className="btn secondary"
+              style={{ padding: "0.25rem 0.8rem", fontSize: "0.8rem" }}
+              type="button"
+              disabled={scene360.busy || tour.busy || !ready}
+              onClick={() => void render360()}
+            >
+              {scene360.busy ? "Rendering…" : "360° scene"}
+            </button>
+            <button
+              className="btn secondary"
+              style={{ padding: "0.25rem 0.8rem", fontSize: "0.8rem" }}
+              type="button"
+              disabled={tour.busy || scene360.busy || !ready}
+              onClick={() => void renderTour()}
+            >
+              {tour.busy ? "Touring…" : "Photoreal walkthrough"}
+            </button>
+          </>
+        )}
         {mode === "walk" && model.levels > 1 && (
           <span style={{ display: "inline-flex", gap: "0.35rem" }}>
             {Array.from({ length: model.levels }, (_, i) => (
@@ -612,6 +803,73 @@ export function Viewer3D({
           ? "Drag to orbit · scroll to zoom · right-drag to pan. Real-time preview with your selected materials — Photoreal still turns the current view into an architectural photo."
           : "Drag to look around · WASD/arrow keys or the ▲▼ buttons to move. Walls stop you; doorways don't — walk the real plan."}
       </p>
+      {scene360.error && (
+        <p className="status-warn" style={{ marginTop: "0.5rem" }}>
+          {scene360.error}
+        </p>
+      )}
+      {scene360.image && (
+        <div style={{ marginTop: "0.6rem" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={scene360.image}
+            alt="360 degree panorama of this room"
+            style={{ width: "100%", borderRadius: 8, border: "1px solid var(--line)" }}
+          />
+          <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.35rem 0 0", display: "flex", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
+            <span>
+              Equirectangular 360° panorama — open it in any panorama viewer to look around.
+              {scene360.note ? ` ${scene360.note}` : ""}
+            </span>
+            <a
+              className="btn secondary"
+              style={{ padding: "0.2rem 0.7rem", fontSize: "0.8rem" }}
+              href={scene360.image}
+              download="buildsphere-360.jpg"
+            >
+              Download
+            </a>
+          </p>
+        </div>
+      )}
+
+      {tour.progress && (
+        <p style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "var(--muted)" }} role="status">
+          {tour.progress}
+        </p>
+      )}
+      {tour.error && (
+        <p className="status-warn" style={{ marginTop: "0.5rem" }}>
+          {tour.error}
+        </p>
+      )}
+      {tour.shots.length > 0 && (
+        <div style={{ marginTop: "0.6rem" }}>
+          <div style={{ display: "grid", gap: "0.6rem", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+            {tour.shots.map((shot) => (
+              <figure key={shot.label} style={{ margin: 0 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={shot.image}
+                  alt={`Photoreal interior of the ${shot.label}`}
+                  style={{ width: "100%", borderRadius: 8, border: "1px solid var(--line)" }}
+                />
+                <figcaption style={{ fontSize: "0.8rem", color: "var(--muted)", display: "flex", justifyContent: "space-between", gap: "0.5rem" }}>
+                  <span>{shot.label}</span>
+                  <a href={shot.image} download={`buildsphere-${shot.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.jpg`}>
+                    Download
+                  </a>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+          <p style={{ fontSize: "0.8rem", color: "var(--muted)", margin: "0.4rem 0 0" }}>
+            AI-interpreted interiors of this concept — the plans and estimate, not these images, are
+            the source of truth.
+          </p>
+        </div>
+      )}
+
       {still.error && (
         <p className="status-warn" style={{ marginTop: "0.5rem" }}>
           {still.error}

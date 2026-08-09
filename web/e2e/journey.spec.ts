@@ -196,3 +196,23 @@ test("editing a layout: drag a room, refuse an illegal move, save one revision",
   await expect(page.locator("body")).toContainText(/rev 1/, { timeout: 15_000 });
   await expect(page.locator("body")).toContainText(/Moved /, { timeout: 15_000 });
 });
+
+test("walk mode offers the metered renders and refuses honestly when unconfigured", async ({ page }) => {
+  await generateProject(page);
+  await page.getByRole("button", { name: "3D viewer" }).first().click();
+  await page.getByRole("button", { name: "Walk inside" }).first().click();
+
+  const scene360 = page.getByRole("button", { name: "360° scene" }).first();
+  const tour = page.getByRole("button", { name: "Photoreal walkthrough" }).first();
+  await expect(scene360).toBeVisible({ timeout: 30_000 });
+  await expect(tour).toBeVisible();
+  // Enabled only once the scene has rendered a frame to capture.
+  await expect(scene360).toBeEnabled({ timeout: 30_000 });
+
+  // No render provider is configured in CI: the honest answer is the exact
+  // fix, never a silent failure or a fake image.
+  await scene360.click();
+  await expect(page.locator(".status-warn").filter({ hasText: /REPLICATE_API_TOKEN|license/ }).first()).toBeVisible({
+    timeout: 30_000,
+  });
+});

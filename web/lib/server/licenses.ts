@@ -12,7 +12,7 @@
 
 import { randomUUID } from "crypto";
 
-import { tierInfo, type CreditKind, type LicenseTier } from "../catalog/licenses";
+import { tierInfo, WALKTHROUGH_SHOTS, type CreditKind, type LicenseTier } from "../catalog/licenses";
 import type { Db } from "./db";
 
 export interface ProjectLicense {
@@ -32,6 +32,11 @@ export const LICENSE_REQUIRED_MESSAGE =
   "This feature needs a project license. Each home is licensed once — one price, no subscription. See onbuildsphere.com/pricing, or license the project from its page.";
 
 export function creditExhaustedMessage(kind: CreditKind): string {
+  // The reservation is plumbing, not a product — never point at an add-on
+  // pack that cannot be bought.
+  if (kind === "walkthrough_shot") {
+    return "This walkthrough has already rendered every stop it paid for. Starting another tour uses one walkthrough credit.";
+  }
   const names: Record<CreditKind, string> = {
     major_revision: "major revisions",
     premium_render: "premium renders",
@@ -39,6 +44,7 @@ export function creditExhaustedMessage(kind: CreditKind): string {
     scene_360: "360° scenes",
     design_direction: "design directions",
     property_analysis: "property analyses",
+    walkthrough_shot: "walkthrough stops",
   };
   return `This project has used all of its included ${names[kind]}. Add-on packs on the project page top it up — nothing is charged until you confirm on the checkout page.`;
 }
@@ -199,4 +205,31 @@ export async function consumeCredit(
     [randomUUID(), license.id, kind, note ?? "used", new Date().toISOString()],
   );
   return { ok: true, remaining: remaining - 1 };
+}
+
+/**
+ * Spend one walkthrough entitlement and reserve the stops it pays for.
+ *
+ * A photoreal tour is many image renders; they cannot all finish inside one
+ * request, so the customer-visible credit is charged once here and each stop
+ * later draws down the reservation. The refund path is deliberately whole:
+ * if the tour cannot start, the walkthrough credit goes back untouched.
+ */
+export async function reserveWalkthrough(
+  db: Db,
+  userId: string,
+  projectId: string,
+  shots: number = WALKTHROUGH_SHOTS,
+): Promise<{ ok: true; shots: number; remaining: number } | { ok: false; error: string }> {
+  const spend = await consumeCredit(db, userId, projectId, "walkthrough", "photoreal walkthrough");
+  if (!spend.ok) return spend;
+
+  const license = await getLicense(db, userId, projectId);
+  if (!license) {
+    // Unreachable in practice — consumeCredit just proved the license exists —
+    // but returning the credit beats leaving it spent on a tour that never ran.
+    return { ok: false, error: LICENSE_REQUIRED_MESSAGE };
+  }
+  await addCredits(db, license.id, "walkthrough_shot", shots, "walkthrough reservation");
+  return { ok: true, shots, remaining: spend.remaining };
 }

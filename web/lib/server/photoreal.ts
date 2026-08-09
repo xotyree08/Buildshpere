@@ -28,6 +28,31 @@ export function buildPhotorealPrompt(styleLabel: string, materialLabels: string[
   );
 }
 
+/**
+ * A 360° room scene. The model is asked for an equirectangular panorama so
+ * the result can be viewed in any panorama viewer, and — as with every
+ * render here — told to keep the geometry it was given.
+ */
+export function buildPanoramaPrompt(roomLabel: string, styleLabel: string, schemeLabel?: string): string {
+  const scheme = schemeLabel ? ` Interior scheme: ${schemeLabel}.` : "";
+  return (
+    `360 degree equirectangular panoramic interior photograph of this ${roomLabel.toLowerCase()} ` +
+    `in a ${styleLabel} home. Keep the room's proportions, window and door placement exactly as shown.${scheme} ` +
+    `Natural daylight, furnished, photorealistic materials, seamless spherical projection, no people, no text.`
+  );
+}
+
+/** One stop on a photoreal walkthrough: an interior, not an elevation. */
+export function buildInteriorPrompt(roomLabel: string, styleLabel: string, schemeLabel?: string): string {
+  const scheme = schemeLabel ? ` Interior scheme: ${schemeLabel}.` : "";
+  return (
+    `Professional interior architectural photograph of this ${roomLabel.toLowerCase()} ` +
+    `in a ${styleLabel} home. Keep the room's proportions, window and door placement, and ceiling height ` +
+    `exactly as shown.${scheme} Natural daylight, tasteful furnishing, photorealistic materials, ` +
+    `wide-angle interior real-estate photography, no people, no text.`
+  );
+}
+
 export interface PhotorealFetch {
   (url: string, init?: RequestInit): Promise<{
     status: number;

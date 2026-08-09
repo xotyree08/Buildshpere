@@ -92,6 +92,13 @@ export default function PricingPage() {
         </section>
 
         <p style={{ color: "var(--muted)", fontSize: "0.9rem", maxWidth: 720 }}>
+          <strong>Exploring your design is always free and unlimited</strong> — the interactive 3-D
+          model, walking through the rooms, every plan and drawing, and revising by conversation
+          cost nothing on any tier. What a license includes are the rendered deliverables that cost
+          real money to produce: photoreal images, 360° panoramas, and rendered walkthroughs.
+        </p>
+
+        <p style={{ color: "var(--muted)", fontSize: "0.9rem", maxWidth: 720 }}>
           A project means one primary residential structure on one property. Minor changes —
           finishes, fixtures, paint, furniture — stay flexible and free within your project. Major
           revisions (moving a staircase, adding a bedroom or a floor, changing the footprint) use
