@@ -1,26 +1,30 @@
 import { NextResponse } from "next/server";
 
-import { ROOFING, SIDING, WINDOWS, type FinishSelections } from "@/lib/catalog/materials";
 import { styleInfo } from "@/lib/catalog/styles";
-import { buildPhotorealPrompt, PHOTOREAL_UNCONFIGURED, renderPhotoreal, type PhotorealEnv } from "@/lib/server/photoreal";
+import { schemeByKey } from "@/lib/engine/interiors";
+import { buildInteriorPrompt, PHOTOREAL_UNCONFIGURED, renderPhotoreal, type PhotorealEnv } from "@/lib/server/photoreal";
 import { clientKey, RATE_LIMITED_MESSAGE, rateLimit } from "@/lib/server/ratelimit";
 import { chargeRender, refundRender, remainingField } from "@/lib/server/rendercredit";
 
-/** Image models are slow; hold the function open for the full prediction. */
 export const maxDuration = 60;
 
-interface PhotorealRequest {
-  /** JPEG capture of the 3D viewer, as a data URL. */
+interface ShotRequest {
   imageDataUrl: string;
+  roomLabel?: string;
   style?: string;
-  finishes?: FinishSelections;
-  /** The project whose license pays for this render. */
+  interiorScheme?: string;
   projectId?: string;
 }
 
+/**
+ * One stop of a photoreal walkthrough. Draws down the reservation made by
+ * /render/walkthrough/start rather than the customer-visible walkthrough
+ * credit, so a tour costs exactly one walkthrough however many stops it has.
+ */
 export async function POST(req: Request) {
-  // The most expensive render we offer — tightest cap of all.
-  const verdict = rateLimit(clientKey(req, "photoreal"), 6, 10 * 60_000);
+  // A tour fires these back to back, so the cap is per-stop generous but
+  // still bounded — one runaway client cannot drain an account.
+  const verdict = rateLimit(clientKey(req, "walkthrough-shot"), 30, 10 * 60_000);
   if (!verdict.allowed) {
     return NextResponse.json(
       { error: RATE_LIMITED_MESSAGE },
@@ -32,9 +36,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: PHOTOREAL_UNCONFIGURED }, { status: 503 });
   }
 
-  let body: PhotorealRequest;
+  let body: ShotRequest;
   try {
-    body = (await req.json()) as PhotorealRequest;
+    body = (await req.json()) as ShotRequest;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
@@ -45,24 +49,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Capture too large — try a smaller viewer size." }, { status: 413 });
   }
 
-  // Premium renders bill to the project's license (one home = one license).
-  const charge = await chargeRender(body.projectId, "premium_render", "photoreal still");
-  if (charge instanceof NextResponse) return charge;
+  const charge = await chargeRender(body.projectId, "walkthrough_shot", "walkthrough stop");
+  if (charge instanceof NextResponse) {
+    // A reservation that ran dry is not the same failure as an unlicensed
+    // project; say which one so the customer knows whether to start again.
+    return charge;
+  }
 
   const styleLabel = styleInfo(body.style)?.label ?? "custom";
-  const f = body.finishes ?? {};
-  const materialLabels = [
-    SIDING.find((o) => o.key === f.siding)?.label && `${SIDING.find((o) => o.key === f.siding)!.label} siding`,
-    ROOFING.find((o) => o.key === f.roofing)?.label && `${ROOFING.find((o) => o.key === f.roofing)!.label} roof`,
-    WINDOWS.find((o) => o.key === f.windows)?.label && `${WINDOWS.find((o) => o.key === f.windows)!.label} windows`,
-  ].filter((v): v is string => Boolean(v));
-
+  const schemeLabel = schemeByKey(body.interiorScheme)?.label;
   const result = await renderPhotoreal(process.env as PhotorealEnv, fetch, {
     imageDataUrl: body.imageDataUrl,
-    prompt: buildPhotorealPrompt(styleLabel, materialLabels),
+    prompt: buildInteriorPrompt(body.roomLabel?.slice(0, 60) || "room", styleLabel, schemeLabel),
   });
+
   if (!result.ok) {
-    await refundRender(charge, "render failed");
+    await refundRender(charge, "walkthrough stop failed");
     return NextResponse.json({ error: result.error }, { status: 502 });
   }
   return NextResponse.json({ imageDataUrl: result.imageDataUrl, ...remainingField(charge) });

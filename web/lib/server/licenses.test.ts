@@ -1,7 +1,7 @@
 import { newDb } from "pg-mem";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { tierInfo } from "../catalog/licenses";
+import { tierInfo, WALKTHROUGH_SHOTS } from "../catalog/licenses";
 import { createUser, type AuthUser } from "./auth";
 import { ensureSchema, type Db } from "./db";
 import {
@@ -13,6 +13,7 @@ import {
   hasActiveLicense,
   LICENSE_REQUIRED_MESSAGE,
   listLicenses,
+  reserveWalkthrough,
 } from "./licenses";
 
 async function testDb(): Promise<Db> {
@@ -98,5 +99,58 @@ describe("project licenses (one home = one license)", () => {
       error: LICENSE_REQUIRED_MESSAGE,
     });
     expect((await listLicenses(db, user.id)).map((l) => l.projectId)).toEqual(["p1"]);
+  });
+});
+
+describe("walkthrough reservation (one credit buys a whole tour)", () => {
+  it("spends one walkthrough and reserves a stop per shot", async () => {
+    await grantLicense(db, { userId: user.id, projectId: "p1", tier: "design", source: "stripe" });
+    const before = await getLicense(db, user.id, "p1");
+    expect(before?.remaining.walkthrough).toBe(1);
+
+    const reserved = await reserveWalkthrough(db, user.id, "p1");
+    expect(reserved).toEqual({ ok: true, shots: WALKTHROUGH_SHOTS, remaining: 0 });
+
+    const after = await getLicense(db, user.id, "p1");
+    expect(after?.remaining.walkthrough).toBe(0);
+    expect(after?.remaining.walkthrough_shot).toBe(WALKTHROUGH_SHOTS);
+  });
+
+  it("every stop draws down the reservation, never the walkthrough credit again", async () => {
+    await grantLicense(db, { userId: user.id, projectId: "p1", tier: "design", source: "stripe" });
+    await reserveWalkthrough(db, user.id, "p1");
+    for (let i = WALKTHROUGH_SHOTS - 1; i >= 0; i--) {
+      const shot = await consumeCredit(db, user.id, "p1", "walkthrough_shot");
+      expect(shot).toEqual({ ok: true, remaining: i });
+    }
+    const after = await getLicense(db, user.id, "p1");
+    expect(after?.remaining.walkthrough).toBe(0);
+  });
+
+  it("a spent reservation says to start a new tour, not to buy a pack that isn't sold", async () => {
+    await grantLicense(db, { userId: user.id, projectId: "p1", tier: "design", source: "stripe" });
+    await reserveWalkthrough(db, user.id, "p1");
+    for (let i = 0; i < WALKTHROUGH_SHOTS; i++) await consumeCredit(db, user.id, "p1", "walkthrough_shot");
+
+    const dry = await consumeCredit(db, user.id, "p1", "walkthrough_shot");
+    expect(dry.ok).toBe(false);
+    if (dry.ok) return;
+    expect(dry.error).toContain("uses one walkthrough credit");
+    expect(dry.error).not.toContain("Add-on");
+  });
+
+  it("a project with no walkthrough left cannot start a tour, and nothing is reserved", async () => {
+    // Concept includes renders and revisions but no walkthrough at all.
+    await grantLicense(db, { userId: user.id, projectId: "p1", tier: "concept", source: "stripe" });
+    const denied = await reserveWalkthrough(db, user.id, "p1");
+    expect(denied.ok).toBe(false);
+    const after = await getLicense(db, user.id, "p1");
+    expect(after?.remaining.walkthrough_shot ?? 0).toBe(0);
+  });
+
+  it("an unlicensed project cannot reserve", async () => {
+    const denied = await reserveWalkthrough(db, user.id, "nope");
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.error).toBe(LICENSE_REQUIRED_MESSAGE);
   });
 });

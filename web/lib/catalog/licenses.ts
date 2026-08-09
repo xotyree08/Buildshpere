@@ -14,7 +14,20 @@ export type CreditKind =
   | "walkthrough"
   | "scene_360"
   | "design_direction"
-  | "property_analysis";
+  | "property_analysis"
+  /**
+   * Internal only, never sold: spending one `walkthrough` reserves a batch of
+   * these, one per rendered stop. A tour is many image renders and cannot
+   * finish inside a single request, so the entitlement is charged once up
+   * front and each stop draws down the reservation.
+   */
+  | "walkthrough_shot";
+
+/** Stops rendered per walkthrough — the reservation size. */
+export const WALKTHROUGH_SHOTS = 6;
+
+/** Kinds a customer never sees as a balance; they are plumbing. */
+export const INTERNAL_KINDS: CreditKind[] = ["walkthrough_shot"];
 
 export interface TierInfo {
   key: LicenseTier;
@@ -64,7 +77,7 @@ export const TIERS: TierInfo[] = [
     features: [
       "Everything in Concept",
       "Full interior and exterior design",
-      "Interactive 3-D model and virtual walkthrough",
+      "A rendered photoreal walkthrough of your home",
       "30 photorealistic renders and 360° rooms",
       "Material selections and furniture layouts",
       "Preliminary bill of materials",
