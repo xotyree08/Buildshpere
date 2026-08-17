@@ -216,3 +216,14 @@ test("walk mode offers the metered renders and refuses honestly when unconfigure
     timeout: 30_000,
   });
 });
+
+test("a major revision still commits on an unmetered project", async ({ page }) => {
+  await generateProject(page);
+  // Adding a room is unambiguously major. Without a license to bill (no
+  // account, no project license) it must still land — metering gates paid
+  // deliverables, never the act of changing your mind.
+  await page.getByPlaceholder(/Request a change/).first().fill("add an office");
+  await page.getByRole("button", { name: "Revise" }).first().click();
+  await expect(page.locator("body")).toContainText(/rev 1/, { timeout: 30_000 });
+  await expect(page.locator("body")).toContainText(/Office/i, { timeout: 30_000 });
+});

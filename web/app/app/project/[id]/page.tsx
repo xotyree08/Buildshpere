@@ -36,6 +36,7 @@ import { compareConcepts } from "@/lib/engine/compare";
 import { buildPermitReadiness } from "@/lib/engine/permit";
 import { buildableDepthFt, buildableWidthFt, buildSitePlan, sanitizeSetbacks, type SetbackRules } from "@/lib/engine/site";
 import { exportFilename, exportProject } from "@/lib/portability";
+import { authorizeRevision } from "@/lib/revisioncredit";
 import { deriveDesignStatus } from "@/lib/status";
 import { accountEmail, formatUsd, loadProject, saveProject, type StoredProject } from "@/lib/store";
 import { pushProject } from "@/lib/sync";
@@ -697,10 +698,19 @@ export default function ProjectPage() {
     if (!outcome.pkg) {
       return outcome.unrecognized.length > 0 ? outcome.unrecognized.join(" ") : "Nothing to change.";
     }
+    // Applying a value-engineering suggestion is judged by the same rule as
+    // any other change: if it materially alters the home, it is major.
+    const priorModel =
+      (base.revisions ?? []).length > 0
+        ? base.revisions![base.revisions!.length - 1].revision.model
+        : base.concept.model;
+    const auth = await authorizeRevision(current.project.id, priorModel, outcome.pkg.revision.model);
+    if (!auth.ok) return auth.error;
+
     current.packages[idx] = { ...base, revisions: [...(base.revisions ?? []), outcome.pkg] };
     const saved = saveProject(current);
     if (!saved.ok) return saved.error;
-    setStorageNotice(saved.warning ?? null);
+    setStorageNotice(saved.warning ?? auth.notice);
     setEntry(loadProject(params.id));
     if (accountEmail()) void pushProject(current).then((r) => !r.ok && setStorageNotice(r.error));
     return null;
@@ -742,10 +752,20 @@ export default function ProjectPage() {
       }
     }
 
+    // A major change spends one of the project's revision rounds; a minor
+    // one never asks. Authorize before committing, so a refused revision
+    // never lands and a round is never charged for a change we then drop.
+    const priorModel =
+      (base.revisions ?? []).length > 0
+        ? base.revisions![base.revisions!.length - 1].revision.model
+        : base.concept.model;
+    const auth = await authorizeRevision(current.project.id, priorModel, outcome.pkg.revision.model);
+    if (!auth.ok) return auth.error;
+
     current.packages[idx] = { ...base, revisions: [...(base.revisions ?? []), outcome.pkg] };
     const saved = saveProject(current);
     if (!saved.ok) return saved.error;
-    setStorageNotice(saved.warning ?? null);
+    setStorageNotice(saved.warning ?? auth.notice);
     setEntry(loadProject(params.id));
     if (accountEmail()) void pushProject(current).then((r) => !r.ok && setStorageNotice(r.error));
     return null;
@@ -773,10 +793,19 @@ export default function ProjectPage() {
     });
     if (!revision) return "Nothing changed — move a room or a wall first.";
 
+    // Layout edits are judged by the same model diff as conversational
+    // ones — nudging a window is free, relocating the kitchen is not.
+    const priorModel =
+      (base.revisions ?? []).length > 0
+        ? base.revisions![base.revisions!.length - 1].revision.model
+        : base.concept.model;
+    const auth = await authorizeRevision(current.project.id, priorModel, nextModel);
+    if (!auth.ok) return auth.error;
+
     current.packages[idx] = { ...base, revisions: [...(base.revisions ?? []), revision] };
     const saved = saveProject(current);
     if (!saved.ok) return saved.error;
-    setStorageNotice(saved.warning ?? null);
+    setStorageNotice(saved.warning ?? auth.notice);
     setEntry(loadProject(params.id));
     if (accountEmail()) void pushProject(current).then((r) => !r.ok && setStorageNotice(r.error));
     return null;
