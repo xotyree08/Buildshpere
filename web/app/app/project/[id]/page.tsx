@@ -698,19 +698,16 @@ export default function ProjectPage() {
     if (!outcome.pkg) {
       return outcome.unrecognized.length > 0 ? outcome.unrecognized.join(" ") : "Nothing to change.";
     }
-    // Applying a value-engineering suggestion is judged by the same rule as
-    // any other change: if it materially alters the home, it is major.
-    const priorModel =
-      (base.revisions ?? []).length > 0
-        ? base.revisions![base.revisions!.length - 1].revision.model
-        : base.concept.model;
-    const auth = await authorizeRevision(current.project.id, priorModel, outcome.pkg.revision.model);
-    if (!auth.ok) return auth.error;
-
+    // Value engineering is deliberately exempt from revision rounds. These
+    // changes are BuildSphere's own suggestions for getting a project back
+    // inside its budget; charging a round for taking our advice would make
+    // the feature something to avoid, which is the opposite of its job.
+    // A customer who wants the same change on their own terms still spends
+    // a round for it through the conversational or layout paths.
     current.packages[idx] = { ...base, revisions: [...(base.revisions ?? []), outcome.pkg] };
     const saved = saveProject(current);
     if (!saved.ok) return saved.error;
-    setStorageNotice(saved.warning ?? auth.notice);
+    setStorageNotice(saved.warning ?? null);
     setEntry(loadProject(params.id));
     if (accountEmail()) void pushProject(current).then((r) => !r.ok && setStorageNotice(r.error));
     return null;

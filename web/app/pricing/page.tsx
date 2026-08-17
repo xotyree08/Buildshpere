@@ -102,8 +102,10 @@ export default function PricingPage() {
           A project means one primary residential structure on one property. Minor changes —
           finishes, fixtures, paint, furniture — stay flexible and free within your project. Major
           revisions (moving a staircase, adding a bedroom or a floor, changing the footprint) use
-          the revision rounds included with your tier. Licensing is started from your project&apos;s
-          page inside <Link href="/app">the app</Link>.
+          the revision rounds included with your tier — except value-engineering changes, which are
+          BuildSphere&apos;s own suggestions for getting back inside your budget and never cost a
+          round. Licensing is started from your project&apos;s page inside{" "}
+          <Link href="/app">the app</Link>.
         </p>
 
         <hr className="hairline" />
