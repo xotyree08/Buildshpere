@@ -43,6 +43,10 @@ const FAQS: [string, string][] = [
     "Your account is free, and designing and revising concepts costs nothing — this browser keeps unlimited local projects, and a free account syncs three to the cloud. When one project is ready to go further, you license that home once: one price, one home, no monthly subscription. Tiers run from BuildSphere Concept at $695 to BuildSphere Build+ at $3,495 per project, each with real included allowances of renders and revision rounds — see onbuildsphere.com/pricing. The exact price is always shown on the secure checkout page before anything is charged, and anything you already synced stays yours.",
   ],
   [
+    "What counts as a \u201cmajor\u201d revision?",
+    "The plan itself decides, not the wording of your request. Changing finishes, fixtures, paint, furniture, tile or lighting is minor and always free and unlimited \u2014 those don\u2019t alter the plan. So are small adjustments: sliding a window, nudging a wall a few inches, moving a door. A revision counts as major when it changes the home in a way a builder would notice: adding or removing a room or a floor, relocating a room across the plan, changing the footprint, or a real change in living area. Those use one of the revision rounds included with your project license, and you\u2019re told which rule applied and how many rounds remain before anything is spent. Projects without a license aren\u2019t metered at all.",
+  ],
+  [
     "Can I take my data and leave?",
     "Always. Every project exports to a single JSON file from the project page — plans, revisions, estimates, records, everything — and imports back losslessly. Your account page can also export all server data, or delete the account entirely.",
   ],
