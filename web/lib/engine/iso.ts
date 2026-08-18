@@ -7,6 +7,7 @@
  */
 
 import type { HomeStyle, ParametricModel, Room } from "../types";
+import { buildRoof, roofFacets } from "./roofgeom";
 import { roofFor } from "./roof";
 
 export const WALL_HEIGHT_FT = 9;
@@ -89,72 +90,39 @@ function boxFaces(room: Room, zBase: number, heightFt: number): IsoFace[] {
  * the parapet look of the plain extrusion is the roof.
  */
 function roofFaces(model: ParametricModel, style: HomeStyle): IsoFace[] {
-  const { form, steepness } = roofFor(style);
-  if (form === "flat" || steepness <= 0) return [];
+  // Geometry comes from the shared roof engine so this view, the elevations
+  // and the 3D viewer draw the same roof instead of three lookalikes.
+  const geom = buildRoof(model, style);
+  const facets = roofFacets(geom, 0);
+  if (facets.length === 0) return [];
 
-  const topLevel = model.levels - 1;
-  const rooms = model.rooms.filter((r) => r.level === topLevel && r.kind !== "outdoor");
-  if (rooms.length === 0) return [];
+  const rooms = model.rooms.filter((r) => r.level === model.levels - 1 && r.kind !== "outdoor");
+  const maxX = Math.max(...rooms.map((r) => r.rect[0] + r.rect[2]), 0);
+  const maxY = Math.max(...rooms.map((r) => r.rect[1] + r.rect[3]), 0);
+  // Draw after every wall face of the building.
+  const depth = (model.levels - 1) * WALL_HEIGHT_FT * 1000 + (maxX + maxY) * 2 + 10;
 
-  const minX = Math.min(...rooms.map((r) => r.rect[0]));
-  const maxX = Math.max(...rooms.map((r) => r.rect[0] + r.rect[2]));
-  const minY = Math.min(...rooms.map((r) => r.rect[1]));
-  const maxY = Math.max(...rooms.map((r) => r.rect[1] + r.rect[3]));
-  const w = maxX - minX;
-  const d = maxY - minY;
-  if (w <= 0 || d <= 0) return [];
-
-  const z0 = model.levels * WALL_HEIGHT_FT;
-  const along = w >= d ? "x" : "y";
-  const halfSpan = (along === "x" ? d : w) / 2;
-  const z1 = z0 + steepness * halfSpan;
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-  // Hip roofs pull the ridge ends in by the half-span; gables run full length.
-  const inset = form === "hip" ? Math.min(halfSpan, (along === "x" ? w : d) / 2 - 0.1) : 0;
-
-  // Draw after every wall face of the building: beyond max room depth, keyed
-  // to the top level so upper-floor walls render first.
-  const depth = topLevel * WALL_HEIGHT_FT * 1000 + (maxX + maxY) * 2 + 10;
-  const face = (kind: FaceKind, points: Point2[], bump: number): IsoFace => ({
-    roomKey: "roof",
-    roomKind: "hallway",
-    kind,
-    points,
-    depth: depth + bump,
+  return facets.map((facet, i) => {
+    // The far slope of each wing is shaded; the near slope catches the sun.
+    const sunlit =
+      facet.kind === "slope" &&
+      facet.points.some((pt) => pt.z >= centroidZ(facets, i));
+    return {
+      roomKey: "roof",
+      roomKind: "hallway" as const,
+      kind: (sunlit ? "roof" : "roof_shade") as FaceKind,
+      points: facet.points.map((pt) => project(pt.x, pt.z, pt.y)),
+      depth: depth + i * 0.1,
+    };
   });
+}
 
-  if (along === "x") {
-    const r0x = minX + inset;
-    const r1x = maxX - inset;
-    return [
-      // north slope (mostly hidden, cheap to draw)
-      face("roof_shade", [project(minX, minY, z0), project(maxX, minY, z0), project(r1x, cy, z1), project(r0x, cy, z1)], 0),
-      // west end
-      form === "hip"
-        ? face("roof_shade", [project(minX, minY, z0), project(minX, maxY, z0), project(r0x, cy, z1)], 0.1)
-        : face("roof_shade", [project(minX, minY, z0), project(minX, maxY, z0), project(minX, cy, z1)], 0.1),
-      // south slope (sun side)
-      face("roof", [project(minX, maxY, z0), project(maxX, maxY, z0), project(r1x, cy, z1), project(r0x, cy, z1)], 0.2),
-      // east end
-      form === "hip"
-        ? face("roof_shade", [project(maxX, minY, z0), project(maxX, maxY, z0), project(r1x, cy, z1)], 0.3)
-        : face("roof_shade", [project(maxX, minY, z0), project(maxX, maxY, z0), project(maxX, cy, z1)], 0.3),
-    ];
-  }
-
-  const r0y = minY + inset;
-  const r1y = maxY - inset;
-  return [
-    face("roof_shade", [project(minX, minY, z0), project(minX, maxY, z0), project(cx, r1y, z1), project(cx, r0y, z1)], 0),
-    form === "hip"
-      ? face("roof_shade", [project(minX, minY, z0), project(maxX, minY, z0), project(cx, r0y, z1)], 0.1)
-      : face("roof_shade", [project(minX, minY, z0), project(maxX, minY, z0), project(cx, minY, z1)], 0.1),
-    face("roof", [project(maxX, minY, z0), project(maxX, maxY, z0), project(cx, r1y, z1), project(cx, r0y, z1)], 0.2),
-    form === "hip"
-      ? face("roof", [project(minX, maxY, z0), project(maxX, maxY, z0), project(cx, r1y, z1)], 0.3)
-      : face("roof", [project(minX, maxY, z0), project(maxX, maxY, z0), project(cx, maxY, z1)], 0.3),
-  ];
+/** Mid-depth of the wing a facet belongs to, used to pick the sunlit slope. */
+function centroidZ(facets: { points: { z: number }[] }[], index: number): number {
+  const wing = Math.floor(index / 4);
+  const group = facets.slice(wing * 4, wing * 4 + 4);
+  const zs = group.flatMap((f) => f.points.map((pt) => pt.z));
+  return (Math.min(...zs) + Math.max(...zs)) / 2;
 }
 
 export function buildIsoScene(model: ParametricModel, style?: HomeStyle): IsoScene {

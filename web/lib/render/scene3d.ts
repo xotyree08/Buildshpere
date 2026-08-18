@@ -8,7 +8,7 @@
 
 import type { FinishSelections } from "../catalog/materials";
 import { defaultSchemeFor, furnitureForModel, schemeByKey, type FurnitureItem, type InteriorScheme } from "../engine/interiors";
-import { roofFor } from "../engine/roof";
+import { buildRoof, roofFacets, roofPeakFt, type RoofGeometry } from "../engine/roofgeom";
 import { WALL_HEIGHT_FT } from "../engine/iso";
 import type { HomeStyle, ParametricModel, Room } from "../types";
 import { exteriorPalette, shade } from "./palette";
@@ -367,54 +367,48 @@ export function buildScene3D(
 
   // Roof over each level's footprint that has no level above it; the top
   // level always gets the style's roof form, lower exposed areas get slabs.
-  const topLevel = model.levels - 1;
-  const top = model.rooms.filter((r) => r.level === topLevel && r.kind !== "outdoor");
-  if (top.length > 0) {
-    const minX = Math.min(...top.map((r) => r.rect[0])) - ROOF_OVERHANG;
-    const maxX = Math.max(...top.map((r) => r.rect[0] + r.rect[2])) + ROOF_OVERHANG;
-    const minZ = Math.min(...top.map((r) => r.rect[1])) - ROOF_OVERHANG;
-    const maxZ = Math.max(...top.map((r) => r.rect[1] + r.rect[3])) + ROOF_OVERHANG;
-    const baseY = model.levels * WALL_HEIGHT_FT;
-    const spec = roofFor(style);
-    const spanX = maxX - minX;
-    const spanZ = maxZ - minZ;
-    const ridgeAlongX = spanX >= spanZ;
-    const halfSpan = (ridgeAlongX ? spanZ : spanX) / 2;
-    const rise = Math.max(spec.steepness, 0) * halfSpan;
+  // One roof, from the shared engine: the same wings, pitch and overhang the
+  // elevations and the massing view draw. This block used to rebuild its own
+  // roof over the top level's BOUNDING BOX, which hung roof over open air on
+  // any plan that wasn't a plain rectangle, and carried an overhang the
+  // drawings did not.
+  const geom = buildRoof(model, style);
+  const baseY = model.levels * WALL_HEIGHT_FT;
 
-    if (spec.form === "flat" || rise < 0.2) {
-      boxes.push({ x: minX, y: baseY, z: minZ, w: spanX, h: 1, d: spanZ, color: palette.roof, kind: "slab" });
-    } else if (spec.form === "gable") {
-      const y0 = baseY;
-      const y1 = baseY + rise;
-      const v: [number, number, number][] = ridgeAlongX
-        ? [
-            [minX, y0, minZ], [maxX, y0, minZ], [maxX, y0, maxZ], [minX, y0, maxZ],
-            [minX, y1, (minZ + maxZ) / 2], [maxX, y1, (minZ + maxZ) / 2],
-          ]
-        : [
-            [minX, y0, minZ], [maxX, y0, minZ], [maxX, y0, maxZ], [minX, y0, maxZ],
-            [(minX + maxX) / 2, y1, minZ], [(minX + maxX) / 2, y1, maxZ],
-          ];
-      const faces = ridgeAlongX
-        ? [[0, 1, 5, 4], [3, 2, 5, 4], [0, 3, 4], [1, 2, 5]]
-        : [[0, 1, 4], [3, 2, 5], [0, 3, 5, 4], [1, 2, 5, 4]];
-      roofs.push({ vertices: v, faces, color: palette.roof });
-    } else {
-      // Hip: ridge inset from both ends along the long axis.
-      const y0 = baseY;
-      const y1 = baseY + rise;
-      const inset = Math.min(halfSpan, (ridgeAlongX ? spanX : spanZ) / 2 - 0.5);
-      const v: [number, number, number][] = ridgeAlongX
-        ? [
-            [minX, y0, minZ], [maxX, y0, minZ], [maxX, y0, maxZ], [minX, y0, maxZ],
-            [minX + inset, y1, (minZ + maxZ) / 2], [maxX - inset, y1, (minZ + maxZ) / 2],
-          ]
-        : [
-            [minX, y0, minZ], [maxX, y0, minZ], [maxX, y0, maxZ], [minX, y0, maxZ],
-            [(minX + maxX) / 2, y1, minZ + inset], [(minX + maxX) / 2, y1, maxZ - inset],
-          ];
-      roofs.push({ vertices: v, faces: [[0, 1, 5, 4], [3, 2, 5, 4], [0, 3, 4], [1, 2, 5]], color: palette.roof });
+  if (geom.wings.length > 0 && (geom.pitch <= 0 || roofRise(geom) < 0.2)) {
+    for (const wing of geom.wings) {
+      const [wx, wz, ww, wd] = wing.rect;
+      boxes.push({
+        x: wx - geom.overhangFt,
+        y: baseY,
+        z: wz - geom.overhangFt,
+        w: ww + geom.overhangFt * 2,
+        h: 1,
+        d: wd + geom.overhangFt * 2,
+        color: palette.roof,
+        kind: "slab",
+      });
+    }
+  } else {
+    // Facets arrive as world-space polygons; a wing's four of them become one
+    // mesh so shared ridge vertices stay welded.
+    const facets = roofFacets(geom);
+    for (let i = 0; i < facets.length; i += 4) {
+      const wingFacets = facets.slice(i, i + 4);
+      const vertices: [number, number, number][] = [];
+      const faces: number[][] = [];
+      for (const facet of wingFacets) {
+        const idx = facet.points.map((pt) => {
+          const found = vertices.findIndex(
+            (v) => Math.abs(v[0] - pt.x) < 1e-6 && Math.abs(v[1] - pt.y) < 1e-6 && Math.abs(v[2] - pt.z) < 1e-6,
+          );
+          if (found >= 0) return found;
+          vertices.push([pt.x, pt.y, pt.z]);
+          return vertices.length - 1;
+        });
+        faces.push(idx);
+      }
+      roofs.push({ vertices, faces, color: palette.roof });
     }
   }
 
@@ -523,4 +517,10 @@ export function buildScene3D(
       h: Math.max(...ys),
     },
   };
+}
+
+/** Rise of the tallest wing — used to treat a near-flat roof as a slab. */
+function roofRise(geom: RoofGeometry): number {
+  const eave = geom.wings[0]?.eaveFt ?? 0;
+  return roofPeakFt(geom) - eave;
 }
