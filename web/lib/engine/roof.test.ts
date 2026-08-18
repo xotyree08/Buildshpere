@@ -5,6 +5,7 @@ import type { DesignBrief, HomeStyle } from "../types";
 import { generateConcepts } from "./generate";
 import { buildIsoScene } from "./iso";
 import { massingBias, PORCH_STYLES, roofFor } from "./roof";
+import { buildRoof } from "./roofgeom";
 
 function brief(style: HomeStyle): DesignBrief {
   return {
@@ -74,7 +75,7 @@ describe("style-aware generation", () => {
 });
 
 describe("roof geometry in the massing scene", () => {
-  it("flat styles add no roof faces; pitched styles add exactly four, drawn last", () => {
+  it("flat styles add no roof faces; pitched styles add four per wing, drawn last", () => {
     const modern = generateConcepts(brief("modern"), 60)[0];
     const flatScene = buildIsoScene(modern.model, "modern");
     expect(flatScene.faces.filter((f) => f.roomKey === "roof")).toHaveLength(0);
@@ -82,7 +83,12 @@ describe("roof geometry in the massing scene", () => {
     const farmhouse = generateConcepts(brief("farmhouse"), 60)[0];
     const scene = buildIsoScene(farmhouse.model, "farmhouse");
     const roof = scene.faces.filter((f) => f.roomKey === "roof");
-    expect(roof).toHaveLength(4);
+    // Four facets per wing — two slopes and two ends. A real plan is not one
+    // rectangle, so it is not one wing either; the count follows the roof the
+    // estimate is priced from rather than a bounding box drawn over it.
+    const wings = buildRoof(farmhouse.model, "farmhouse").wings.length;
+    expect(wings).toBeGreaterThan(0);
+    expect(roof).toHaveLength(4 * wings);
     // roof faces sort after every wall/top face of the building
     const lastNonRoof = Math.max(...scene.faces.map((f, i) => (f.roomKey === "roof" ? -1 : i)));
     const firstRoof = scene.faces.findIndex((f) => f.roomKey === "roof");
@@ -99,7 +105,7 @@ describe("roof geometry in the massing scene", () => {
       const two = generateConcepts(brief(style), 60).find((c) => c.model.levels === 2)!;
       const scene = buildIsoScene(two.model, style);
       const roof = scene.faces.filter((f) => f.roomKey === "roof");
-      expect(roof).toHaveLength(4);
+      expect(roof).toHaveLength(4 * buildRoof(two.model, style).wings.length);
       for (const f of roof) {
         for (const p of f.points) {
           expect(Number.isFinite(p.x)).toBe(true);

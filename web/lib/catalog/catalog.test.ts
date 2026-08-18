@@ -126,11 +126,25 @@ describe("finish selections", () => {
 
   it("style cost factor still scales the chosen exterior materials", () => {
     const model = generateConcepts(brief, 60)[0].model;
-    const victorianSlate = estimateRevision(model, "r", "US_NATIONAL", { styleKey: "victorian", roofing: "slate" });
-    const ranchSlate = estimateRevision(model, "r", "US_NATIONAL", { styleKey: "ranch", roofing: "slate" });
-    const vRoof = victorianSlate.lineItems.find((li) => li.description.startsWith("Roofing"))!;
-    const rRoof = ranchSlate.lineItems.find((li) => li.description.startsWith("Roofing"))!;
-    expect(vRoof.unitCostCents).toBeGreaterThan(rRoof.unitCostCents);
+    const victorian = estimateRevision(model, "r", "US_NATIONAL", { styleKey: "victorian", siding: "brick" });
+    const ranch = estimateRevision(model, "r", "US_NATIONAL", { styleKey: "ranch", siding: "brick" });
+    const vSiding = victorian.lineItems.find((li) => li.description.startsWith("Siding"))!;
+    const rSiding = ranch.lineItems.find((li) => li.description.startsWith("Siding"))!;
+    expect(vSiding.unitCostCents).toBeGreaterThan(rSiding.unitCostCents);
+  });
+
+  it("a steep roof costs more than a low one through its AREA, not a second markup", () => {
+    // The style factor is documented as pricing steep, complex roofs. Now that
+    // the quantity carries real pitch-corrected area, scaling the unit cost by
+    // the same trait would charge for steepness twice — a Victorian roof would
+    // land near 1.25 x 1.49 = 1.86x a flat one over the same footprint.
+    const model = generateConcepts(brief, 60)[0].model;
+    const steep = estimateRevision(model, "r", "US_NATIONAL", { styleKey: "victorian", roofing: "slate" });
+    const low = estimateRevision(model, "r", "US_NATIONAL", { styleKey: "ranch", roofing: "slate" });
+    const vRoof = steep.lineItems.find((li) => li.description.startsWith("Roofing"))!;
+    const rRoof = low.lineItems.find((li) => li.description.startsWith("Roofing"))!;
+    expect(vRoof.unitCostCents).toBe(rRoof.unitCostCents);
+    expect(vRoof.qty).toBeGreaterThan(rRoof.qty);
   });
 
   it("repriceConceptPackage moves money but not geometry or health", () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ParametricModel, Room } from "../types";
-import { buildRoof, decomposeWings, pitchLabel, roofFacets, roofPeakFt, ROOF_OVERHANG_FT, slopeFactor } from "./roofgeom";
+import { buildRoof, decomposeWings, MIN_WING_FT, pitchLabel, roofFacets, roofPeakFt, ROOF_OVERHANG_FT, slopeFactor } from "./roofgeom";
 import { WALL_HEIGHT_FT } from "./iso";
 
 function room(key: string, rect: [number, number, number, number], level = 0): Room {
@@ -147,16 +147,64 @@ describe("roof geometry: one roof, computed from the plan", () => {
     expect(wingArea).toBeCloseTo(1200, 2);
   });
 
-  it("a sliver is absorbed into its neighbour, never dropped — no roof holes", () => {
-    // A room projecting 3ft past the others must end up under roof, not left
-    // open because its strip was too small to be its own wing.
+  it("a sliver is roofed like its neighbour, never dropped and never spiked", () => {
+    // A room projecting 3.5ft past the others must end up under roof, not left
+    // open because its strip was too small to be its own wing — and not given
+    // its own little ridge either. The main roof plane runs across it.
     const ragged = model([room("a", [0, 0, 24, 40]), room("b", [24, 18, 3.5, 12])]);
     const roof = buildRoof(ragged, "farmhouse");
+    const covered = roof.wings.reduce((sum, w) => sum + w.rect[2] * w.rect[3], 0);
+    expect(covered).toBeCloseTo(roof.coveredAreaSqft, 2);
+    // The projection is under roof to its full extent...
+    expect(Math.max(...roof.wings.map((w) => w.rect[0] + w.rect[2]))).toBeGreaterThanOrEqual(27.5);
+    // ...and nothing is roofed that no room sits under: 24x40 plus the
+    // projection, squared off to the main block's depth by the notch rule.
+    expect(covered).toBeLessThanOrEqual(24 * 40 + 3.5 * 40 + 1e-6);
+
+    const main = roof.wings.find((w) => w.rect[2] >= MIN_WING_FT && w.rect[3] >= MIN_WING_FT)!;
+    const sliver = roof.wings.find((w) => Math.min(w.rect[2], w.rect[3]) < MIN_WING_FT)!;
+    expect(sliver.ridgeAxis).toBe(main.ridgeAxis);
+    expect(sliver.ridgeFt).toBeCloseTo(main.ridgeFt, 6);
+  });
+
+  it("a courtyard stays a hole — the roof does not close over it", () => {
+    // Four wings around an open middle. The void is far wider than a corridor,
+    // so it must survive: filling it once inflated a concept's roof by 60% and
+    // drew a roof straight across the courtyard it was named for.
+    const court = model([
+      room("n", [0, 0, 60, 14]),
+      room("s", [0, 34, 60, 14]),
+      room("w", [0, 14, 14, 20]),
+      room("e", [46, 14, 14, 20]),
+    ]);
+    const roof = buildRoof(court, "mediterranean");
+    const covered = roof.wings.reduce((sum, w) => sum + w.rect[2] * w.rect[3], 0);
+    expect(covered).toBeCloseTo(60 * 14 * 2 + 14 * 20 * 2, 2);
+    expect(covered).toBeLessThan(60 * 48 * 0.8);
+    // No wing may sit over the open middle.
+    for (const w of roof.wings) {
+      const [x, z, ww, d] = w.rect;
+      const overX = Math.min(x + ww, 46) - Math.max(x, 14);
+      const overZ = Math.min(z + d, 34) - Math.max(z, 14);
+      expect(Math.max(0, overX) * Math.max(0, overZ)).toBeCloseTo(0, 6);
+    }
+  });
+
+  it("corridors between rooms are under roof, so gross area beats net", () => {
+    // Two rows of rooms with a four-foot hallway between them that no room
+    // object models. A roof spans that; pricing the slab, the floor and the
+    // roofing from the room rectangles alone under-measured all three.
+    const rows = model([
+      room("a", [0, 0, 30, 14]),
+      room("b", [30, 0, 30, 14]),
+      room("c", [0, 18, 30, 14]),
+      room("d", [30, 18, 30, 14]),
+    ]);
+    const roof = buildRoof(rows, "ranch");
+    const netRooms = 4 * 30 * 14;
+    expect(roof.coveredAreaSqft).toBeCloseTo(60 * 32, 2);
+    expect(netRooms / roof.coveredAreaSqft).toBeGreaterThan(0.8);
     expect(roof.wings).toHaveLength(1);
-    const [x, z, w, d] = roof.wings[0].rect;
-    expect(x + w).toBeGreaterThanOrEqual(27.5);
-    expect(z).toBeLessThanOrEqual(0);
-    expect(d).toBeGreaterThanOrEqual(40);
   });
 
   it("is deterministic and never returns NaN", () => {

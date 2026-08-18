@@ -82,91 +82,218 @@ function roofedRooms(model: ParametricModel, level: number): Room[] {
 }
 
 /**
- * Decompose a set of axis-aligned rectangles into non-overlapping vertical
- * strips covering exactly their union, then merge neighbours that share a
- * depth span. An L-shaped plan becomes two wings, not one bounding box; a
- * plain rectangle stays one. Deterministic: edges are sorted numerically.
+ * Largest unroofed gap that still reads as circulation rather than a void.
+ *
+ * A plan's rooms never tile their own footprint. Corridors, stair halls and
+ * wall thickness sit between them and no generator emits a room for every
+ * one, so the union of the room rectangles is riddled with slots a real roof
+ * plainly spans. It does not span everything, though: a courtyard, a light
+ * well, or the open ground beside a wing must stay open, and roofing those
+ * over inflated one concept's roof by 60% while drawing a roof straight
+ * across its own courtyard.
+ *
+ * Six feet separates the two. It is wider than any corridor a house needs and
+ * narrower than any void worth designing, so gaps up to it close and wider
+ * ones stay holes.
+ */
+export const CIRCULATION_GAP_FT = 6;
+
+/** Merge spans that overlap or sit within `bridgeFt` of one another. */
+function mergeSpans(spans: [number, number][], bridgeFt: number): [number, number][] {
+  const sorted = [...spans].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const out: [number, number][] = [];
+  for (const [z0, z1] of sorted) {
+    const last = out[out.length - 1];
+    if (last && z0 - last[1] <= bridgeFt + 1e-9) last[1] = Math.max(last[1], z1);
+    else out.push([z0, z1]);
+  }
+  return out;
+}
+
+/**
+ * Square off notches in the footprint.
+ *
+ * Rooms in a row are not all the same depth, so the union of their rectangles
+ * has a sawtooth edge of one- and three-foot steps. No builder frames that
+ * and no roof follows it — left alone it shatters a plain house into a dozen
+ * wings, each carrying its own ridge at its own height. A step shallower than
+ * a corridor is a notch: the roof runs past it.
+ *
+ * Only edge-sharing neighbours pull on each other, every extension is
+ * measured against the ORIGINAL rectangles, and they are all applied at once.
+ * A staircase of small steps therefore cannot chain into one large one, and
+ * the result does not depend on which end the sweep starts from.
+ */
+function squareNotches(rooms: Room[]): [number, number, number, number][] {
+  return rooms.map((room) => {
+    const [x, z, w, d] = room.rect;
+    let x0 = x;
+    let x1 = x + w;
+    let z0 = z;
+    let z1 = z + d;
+    for (const other of rooms) {
+      if (other === room) continue;
+      const [ox, oz, ow, od] = other.rect;
+      const touchX = Math.abs(ox + ow - x) < 1e-9 || Math.abs(x + w - ox) < 1e-9;
+      const touchZ = Math.abs(oz + od - z) < 1e-9 || Math.abs(z + d - oz) < 1e-9;
+      if (touchX && Math.min(z + d, oz + od) - Math.max(z, oz) > 1e-9) {
+        if (z - oz > 1e-9 && z - oz <= CIRCULATION_GAP_FT) z0 = Math.min(z0, oz);
+        if (oz + od - (z + d) > 1e-9 && oz + od - (z + d) <= CIRCULATION_GAP_FT) z1 = Math.max(z1, oz + od);
+      }
+      if (touchZ && Math.min(x + w, ox + ow) - Math.max(x, ox) > 1e-9) {
+        if (x - ox > 1e-9 && x - ox <= CIRCULATION_GAP_FT) x0 = Math.min(x0, ox);
+        if (ox + ow - (x + w) > 1e-9 && ox + ow - (x + w) <= CIRCULATION_GAP_FT) x1 = Math.max(x1, ox + ow);
+      }
+    }
+    return [x0, z0, x1 - x0, z1 - z0] as [number, number, number, number];
+  });
+}
+
+/**
+ * Decompose a set of axis-aligned rectangles into the rectangles a roof
+ * actually covers: their union, with circulation-width gaps closed, sliced
+ * into vertical strips and grown back together where neighbouring strips
+ * share a depth span.
+ *
+ * An L-shaped plan becomes two wings, not one bounding box. A plain rectangle
+ * stays one. A plan with a courtyard keeps its hole. Deterministic: edges are
+ * sorted numerically and strips are emitted left to right, front to back.
  */
 export function decomposeWings(rooms: Room[]): [number, number, number, number][] {
   if (rooms.length === 0) return [];
+  const rects = squareNotches(rooms);
   const xs = Array.from(
-    new Set(rooms.flatMap((r) => [r.rect[0], r.rect[0] + r.rect[2]])),
+    new Set(rects.flatMap((r) => [r[0], r[0] + r[2]])),
   ).sort((a, b) => a - b);
 
-  const strips: [number, number, number, number][] = [];
+  const columns: { x0: number; x1: number; spans: [number, number][] }[] = [];
   for (let i = 0; i < xs.length - 1; i++) {
     const x0 = xs[i];
     const x1 = xs[i + 1];
     if (x1 - x0 <= 1e-9) continue;
     const mid = (x0 + x1) / 2;
-    // Every room spanning this slice contributes its depth range.
-    const spanning = rooms.filter((r) => r.rect[0] <= mid && r.rect[0] + r.rect[2] >= mid);
+    // Every room spanning this slice contributes its depth range. Taking the
+    // min and max of those ranges — which is what this used to do — roofs the
+    // entire gap between the frontmost and backmost room in the slice, so a
+    // bathroom at the front and a hall at the back conjured 27 feet of roof
+    // over open ground between them.
+    const spanning = rects.filter((r) => r[0] <= mid && r[0] + r[2] >= mid);
     if (spanning.length === 0) continue;
-    const z0 = Math.min(...spanning.map((r) => r.rect[1]));
-    const z1 = Math.max(...spanning.map((r) => r.rect[1] + r.rect[3]));
-    strips.push([x0, z0, x1 - x0, z1 - z0]);
+    columns.push({
+      x0,
+      x1,
+      spans: mergeSpans(
+        spanning.map((r) => [r[1], r[1] + r[3]] as [number, number]),
+        CIRCULATION_GAP_FT,
+      ),
+    });
   }
 
-  // Merge left-to-right while the depth span is unchanged, so a rectangular
-  // house is one wing rather than a comb of slivers.
-  const merged: [number, number, number, number][] = [];
-  for (const s of strips) {
-    const last = merged[merged.length - 1];
-    if (
-      last &&
-      Math.abs(last[1] - s[1]) < 1e-9 &&
-      Math.abs(last[3] - s[3]) < 1e-9 &&
-      Math.abs(last[0] + last[2] - s[0]) < 1e-9
-    ) {
-      last[2] += s[2];
-    } else {
-      merged.push([...s] as [number, number, number, number]);
+  // The same notch rule again, now between whole columns rather than between
+  // rooms. Squaring the rooms cannot see a step that only appears once
+  // several of them are stacked into one strip, and leaving those unsquared
+  // costs an extra wing on a typical plan. Same guarantees: measured against
+  // the ORIGINAL spans, applied to every column at once, no chaining.
+  const squared = columns.map((col, i) => ({
+    x0: col.x0,
+    x1: col.x1,
+    spans: mergeSpans(
+      col.spans.map(([z0, z1]) => {
+        let lo = z0;
+        let hi = z1;
+        for (const nb of [columns[i - 1], columns[i + 1]]) {
+          if (!nb) continue;
+          const adjacent =
+            Math.abs(nb.x1 - col.x0) < 1e-9 || Math.abs(col.x1 - nb.x0) < 1e-9;
+          if (!adjacent) continue;
+          for (const [nz0, nz1] of nb.spans) {
+            if (Math.min(z1, nz1) - Math.max(z0, nz0) <= 1e-9) continue;
+            if (z0 - nz0 > 1e-9 && z0 - nz0 <= CIRCULATION_GAP_FT) lo = Math.min(lo, nz0);
+            if (nz1 - z1 > 1e-9 && nz1 - z1 <= CIRCULATION_GAP_FT) hi = Math.max(hi, nz1);
+          }
+        }
+        return [lo, hi] as [number, number];
+      }),
+      0,
+    ),
+  }));
+
+  // Grow each rectangle rightwards through columns carrying the same span, so
+  // a rectangular house is one wing rather than a comb of slivers. Only the
+  // immediately preceding column can extend one, and only when it is
+  // genuinely adjacent — a skipped empty column ends the run.
+  const wings: [number, number, number, number][] = [];
+  let open = new Map<string, [number, number, number, number]>();
+  for (const col of squared) {
+    const next = new Map<string, [number, number, number, number]>();
+    for (const [z0, z1] of col.spans) {
+      const key = `${z0.toFixed(4)}:${z1.toFixed(4)}`;
+      const prior = open.get(key);
+      if (prior && Math.abs(prior[0] + prior[2] - col.x0) < 1e-9) {
+        prior[2] += col.x1 - col.x0;
+        next.set(key, prior);
+      } else {
+        const rect: [number, number, number, number] = [col.x0, z0, col.x1 - col.x0, z1 - z0];
+        wings.push(rect);
+        next.set(key, rect);
+      }
     }
+    open = next;
   }
-  return absorbSlivers(merged);
+  return mergeRectangles(wings);
 }
 
 /**
- * Narrowest strip that can carry its own ridge.
- *
- * Real plans are ragged: one bedroom projecting three feet past its
- * neighbours is a notch, not a wing. Left alone it would grow its own little
- * roof with its own ridge, which no builder would frame and no drawing should
- * show — the main roof simply spans it. Absorbing these also keeps the drawn
- * roof and the priced roof identical, which they were not before.
+ * Fuse neighbouring rectangles whose union is itself a rectangle, until none
+ * are left. Exact by construction — nothing is added or dropped — it only
+ * stops a plain shape arriving as a stack of pieces, each of which would
+ * otherwise carry its own ridge.
  */
-export const MIN_WING_FT = 10;
-
-function absorbSlivers(
-  wings: [number, number, number, number][],
+function mergeRectangles(
+  rects: [number, number, number, number][],
 ): [number, number, number, number][] {
-  const out = wings.map((w) => [...w] as [number, number, number, number]);
-  let changed = true;
-  while (changed && out.length > 1) {
+  const out = rects.map((r) => [...r] as [number, number, number, number]);
+  for (let changed = true; changed; ) {
     changed = false;
-    for (let i = 0; i < out.length; i++) {
-      const [, , w, d] = out[i];
-      if (Math.min(w, d) >= MIN_WING_FT) continue;
-      // Absorb into the neighbour that shares the longest edge with it.
-      let best = -1;
-      let bestOverlap = -1;
-      for (let j = 0; j < out.length; j++) {
-        if (i === j) continue;
-        const overlap = sharedEdgeFt(out[i], out[j]);
-        if (overlap > bestOverlap) {
-          bestOverlap = overlap;
-          best = j;
+    outer: for (let i = 0; i < out.length; i++) {
+      for (let j = i + 1; j < out.length; j++) {
+        const a = out[i];
+        const b = out[j];
+        const sameX = Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(a[2] - b[2]) < 1e-9;
+        const sameZ = Math.abs(a[1] - b[1]) < 1e-9 && Math.abs(a[3] - b[3]) < 1e-9;
+        const touchZ = Math.abs(a[1] + a[3] - b[1]) < 1e-9 || Math.abs(b[1] + b[3] - a[1]) < 1e-9;
+        const touchX = Math.abs(a[0] + a[2] - b[0]) < 1e-9 || Math.abs(b[0] + b[2] - a[0]) < 1e-9;
+        if (sameX && touchZ) {
+          a[1] = Math.min(a[1], b[1]);
+          a[3] += b[3];
+        } else if (sameZ && touchX) {
+          a[0] = Math.min(a[0], b[0]);
+          a[2] += b[2];
+        } else {
+          continue;
         }
+        out.splice(j, 1);
+        changed = true;
+        break outer;
       }
-      if (best < 0) continue;
-      out[best] = boundingBox(out[best], out[i]);
-      out.splice(i, 1);
-      changed = true;
-      break;
     }
   }
   return out;
 }
+
+/**
+ * Narrowest strip that gets to choose its own ridge direction.
+ *
+ * Real plans are ragged: one bedroom projecting three feet past its
+ * neighbours is a notch, not a wing. Left to itself it would turn its ridge
+ * across the main one and grow a little cross-gable no builder would frame.
+ *
+ * Note what this does NOT do: it does not merge the notch into its
+ * neighbour's bounding box. That would fill any genuine void — a courtyard
+ * is a hole in the roof, and roofing it over inflated one concept's roof by
+ * 60% while drawing a roof across its own courtyard.
+ */
+export const MIN_WING_FT = 10;
 
 /** Length of the contact between two rectangles; 0 when they don't touch. */
 function sharedEdgeFt(
@@ -180,15 +307,24 @@ function sharedEdgeFt(
   return 0;
 }
 
-function boundingBox(
-  a: [number, number, number, number],
-  b: [number, number, number, number],
-): [number, number, number, number] {
-  const x0 = Math.min(a[0], b[0]);
-  const z0 = Math.min(a[1], b[1]);
-  const x1 = Math.max(a[0] + a[2], b[0] + b[2]);
-  const z1 = Math.max(a[1] + a[3], b[1] + b[3]);
-  return [x0, z0, x1 - x0, z1 - z0];
+/**
+ * Roofed footprint of one storey, in square feet.
+ *
+ * This is GROSS floor area — the area the slab is poured over and the floor is
+ * framed across, corridors, wall thickness and all. It is not the sum of the
+ * room rectangles: the plans do not model every hallway, and a house is not
+ * built only where a room is labelled. Expect 80-90% of this to be modelled
+ * rooms, which is the net-to-gross ratio residential plans actually run at.
+ */
+export function footprintSqft(model: ParametricModel, level: number): number {
+  return decomposeWings(roofedRooms(model, level)).reduce((sum, [, , w, d]) => sum + w * d, 0);
+}
+
+/** Gross floor area across every storey. */
+export function grossFloorSqft(model: ParametricModel): number {
+  let total = 0;
+  for (let lvl = 0; lvl < model.levels; lvl++) total += footprintSqft(model, lvl);
+  return total;
 }
 
 /**
@@ -209,16 +345,39 @@ export function buildRoof(
   const wingRects = decomposeWings(roofedRooms(model, topLevel));
   const eaveFt = model.levels * WALL_HEIGHT_FT;
 
+  // The largest rectangle sets the roofline; notches fall in behind it.
+  const dominant = wingRects.reduce<[number, number, number, number] | null>(
+    (best, r) => (!best || r[2] * r[3] > best[2] * best[3] ? r : best),
+    null,
+  );
+  const dominantAxis: "x" | "z" = dominant && dominant[2] >= dominant[3] ? "x" : "z";
+
   const wings: RoofWing[] = wingRects.map((rect) => {
     const [, , w, d] = rect;
-    const ridgeAxis: "x" | "z" = w >= d ? "x" : "z";
-    const halfSpan = Math.min(w, d) / 2;
-    return {
-      rect,
-      ridgeAxis,
-      eaveFt,
-      ridgeFt: eaveFt + pitch * halfSpan,
-    };
+    const isSliver = Math.min(w, d) < MIN_WING_FT;
+    // A notch runs its ridge with the main roof rather than across it.
+    const ridgeAxis: "x" | "z" = isSliver ? dominantAxis : w >= d ? "x" : "z";
+    const span = ridgeAxis === "x" ? d : w;
+    let ridgeFt = eaveFt + (pitch * span) / 2;
+    if (isSliver) {
+      // ...and it carries the neighbouring roof's ridge height too. A two-foot
+      // jog in a wall does not get its own little roof two feet tall: the
+      // builder runs the main plane straight across it, which is steeper over
+      // that stretch than the nominal pitch and reads as one surface. Giving
+      // the notch its own low ridge instead turned a plain elevation into a
+      // comb of spikes.
+      const host = wingRects
+        .filter((other) => other !== rect && Math.min(other[2], other[3]) >= MIN_WING_FT)
+        .map((other) => ({ other, edge: sharedEdgeFt(rect, other) }))
+        .filter((c) => c.edge > 1e-9)
+        .sort((a, b) => b.edge - a.edge || a.other[0] - b.other[0] || a.other[1] - b.other[1])[0];
+      if (host) {
+        const [, , hw, hd] = host.other;
+        const hostAxis: "x" | "z" = hw >= hd ? "x" : "z";
+        ridgeFt = eaveFt + (pitch * (hostAxis === "x" ? hd : hw)) / 2;
+      }
+    }
+    return { rect, ridgeAxis, eaveFt, ridgeFt };
   });
 
   // Plan area counts every level's roofed footprint, not just the top: on a
@@ -247,11 +406,22 @@ export function buildRoof(
   // Overhang adds a skirt around the outer edge. Approximated from the top
   // level's perimeter rather than inflating every wing, which would
   // double-count where wings meet.
-  const wallPerimeterFt = wingRects.reduce((sum, [, , w, d]) => sum + 2 * (w + d), 0);
+  // Only the OUTER edge carries an eave: where two wings butt, the roof runs
+  // straight through and there is no eave, no gutter and no fascia. Counting
+  // both sides of every shared edge would hang a skirt inside the building.
+  let sharedFt = 0;
+  for (let i = 0; i < wingRects.length; i++) {
+    for (let j = i + 1; j < wingRects.length; j++) sharedFt += sharedEdgeFt(wingRects[i], wingRects[j]);
+  }
+  const wallPerimeterFt = Math.max(
+    0,
+    wingRects.reduce((sum, [, , w, d]) => sum + 2 * (w + d), 0) - 2 * sharedFt,
+  );
   planAreaSqft += wallPerimeterFt * ROOF_OVERHANG_FT;
-  // FIX 2: the eave line sits at the edge of the overhang, so it is longer
-  // than the wall below it. Measuring area to the eave but length to the wall
-  // would understate every eave-based quantity (gutters, drip edge, fascia).
+  // The eave line sits at the edge of the overhang, so it is longer than the
+  // wall below it. Measuring area to the eave but length to the wall would
+  // understate every eave-based quantity (gutters, drip edge, fascia). Four
+  // outside corners per wing, each adding two overhangs' worth of run.
   const eaveLf = wallPerimeterFt + wingRects.length * 8 * ROOF_OVERHANG_FT;
 
   const ridgeLf = wings.reduce((sum, wing) => {

@@ -15,6 +15,7 @@ import type {
   ValueEngineeringSuggestion,
 } from "../types";
 import { applyRevision } from "./revise";
+import { buildRoof, footprintSqft, grossFloorSqft } from "./roofgeom";
 import {
   APPLIANCES,
   CABINETS,
@@ -36,8 +37,18 @@ export interface EstimateFinishes extends FinishSelections {
   styleKey?: HomeStyle;
 }
 
-/** Line-item categories the style cost factor applies to. */
-const STYLE_SCALED = new Set(["Framing", "Roofing", "Exterior", "Windows & Doors"]);
+/**
+ * Line-item categories the style cost factor applies to.
+ *
+ * Roofing is deliberately NOT here. The style factor is documented as pricing
+ * "steep, complex" roofs, and it used to be the only thing making a Victorian
+ * roof cost more than a ranch's. Now that the quantity carries real
+ * pitch-corrected area, scaling the unit cost by the same trait would charge
+ * for steepness twice — a Victorian would land near 1.25 x 1.49 = 1.86x a
+ * flat roof over the same footprint. Steepness belongs in the area; the unit
+ * cost is what the material costs to install per square of roof.
+ */
+const STYLE_SCALED = new Set(["Framing", "Exterior", "Windows & Doors"]);
 
 /** Regional cost multipliers vs. national baseline. Grows into a real price book. */
 const REGION_FACTORS: Record<string, number> = {
@@ -49,6 +60,15 @@ const REGION_FACTORS: Record<string, number> = {
 };
 
 interface Quantities {
+  /** Pitch-corrected roof surface, eaves included — the roofing quantity. */
+  roofSurfaceSqft: number;
+  /** Footprint under roof, eaves excluded — the ceiling plane. */
+  roofCoveredSqft: number;
+  /** Gross ground-floor area: what the slab is poured over. */
+  grossFootprintSqft: number;
+  /** Gross area of every storey: what the floors are framed across. */
+  grossFloorSqft: number;
+  /** Modelled room area, excluding garage and outdoor space. */
   livableSqft: number;
   garageSqft: number;
   outdoorSqft: number;
@@ -60,7 +80,7 @@ interface Quantities {
   levels: number;
 }
 
-export function takeoff(model: ParametricModel): Quantities {
+export function takeoff(model: ParametricModel, styleKey?: HomeStyle): Quantities {
   let livableSqft = 0;
   let garageSqft = 0;
   let outdoorSqft = 0;
@@ -80,7 +100,26 @@ export function takeoff(model: ParametricModel): Quantities {
     if (r.kind === "kitchen") kitchens++;
   }
 
+  // Roofing used to be `(livableSqft / levels) * 1.15 + garageSqft`: a
+  // footprint proxy assuming every storey had equal area, and a blanket 1.15
+  // that silently priced EVERY home as a 6.8:12 roof. Form and pitch affected
+  // no price at all — a flat modern and a steep Victorian cost the same per
+  // square foot of roof. Now the roof is measured.
+  //
+  // Measuring it exposed a second error the proxy had been hiding. Slab and
+  // floor framing were priced from the sum of the ROOM rectangles, but a
+  // house is not built only where a room is labelled — the corridors between
+  // them are poured and framed like everything else. Left alone, the estimate
+  // would have carried a 2,750 sqft roof over a 2,220 sqft slab. Gross area
+  // now prices all three, and lands at the 80-90% net-to-gross ratio real
+  // residential plans run at.
+  const roof = buildRoof(model, styleKey);
+
   return {
+    roofSurfaceSqft: Math.round(roof.surfaceAreaSqft),
+    roofCoveredSqft: Math.round(roof.coveredAreaSqft),
+    grossFootprintSqft: Math.round(footprintSqft(model, 0)),
+    grossFloorSqft: Math.round(grossFloorSqft(model)),
     livableSqft: Math.round(livableSqft),
     garageSqft: Math.round(garageSqft),
     outdoorSqft: Math.round(outdoorSqft),
@@ -103,9 +142,9 @@ interface BookEntry {
 }
 
 const PRICE_BOOK: BookEntry[] = [
-  { category: "Foundation", description: "Slab & footings", unit: "sqft", unitCostCents: 1400, qty: (q) => (q.livableSqft / q.levels) + q.garageSqft, source: "takeoff" },
+  { category: "Foundation", description: "Slab & footings", unit: "sqft", unitCostCents: 1400, qty: (q) => q.grossFootprintSqft, source: "takeoff" },
   { category: "Framing", description: "Wall framing", unit: "lf", unitCostCents: 12500, qty: (q) => q.wallLf, source: "takeoff" },
-  { category: "Framing", description: "Floor/roof structure", unit: "sqft", unitCostCents: 1800, qty: (q) => q.livableSqft + q.garageSqft, source: "takeoff" },
+  { category: "Framing", description: "Floor/roof structure", unit: "sqft", unitCostCents: 1800, qty: (q) => q.grossFloorSqft, source: "takeoff" },
   { category: "Windows & Doors", description: "Doors", unit: "ea", unitCostCents: 35000, qty: (q) => q.doors, source: "takeoff" },
   { category: "Plumbing", description: "Bath rough-in & fixtures", unit: "bath", unitCostCents: 1250000, qty: (q) => q.baths, source: "takeoff" },
   { category: "Electrical", description: "Service, wiring, fixtures", unit: "sqft", unitCostCents: 950, qty: (q) => q.livableSqft, source: "takeoff" },
@@ -127,7 +166,7 @@ function finishBook(finishes: EstimateFinishes): BookEntry[] {
   const windows = pick(WINDOWS, finishes.windows, DEFAULT_FINISHES.windows);
 
   const entries: BookEntry[] = [
-    { category: "Roofing", description: `Roofing — ${roofing.label}`, unit: "sqft", unitCostCents: roofing.costPerSqftCents, qty: (q) => (q.livableSqft / q.levels) * 1.15 + q.garageSqft, source: "takeoff" },
+    { category: "Roofing", description: `Roofing — ${roofing.label}`, unit: "sqft", unitCostCents: roofing.costPerSqftCents, qty: (q) => q.roofSurfaceSqft, source: "takeoff" },
     { category: "Exterior", description: `Siding — ${siding.label}`, unit: "sqft", unitCostCents: siding.costPerSqftCents, qty: (q) => q.wallLf * 9, source: "takeoff" },
     { category: "Windows & Doors", description: `Windows — ${windows.label}`, unit: "ea", unitCostCents: windows.costCents, qty: (q) => q.windows, source: "takeoff" },
     { category: "Flooring", description: flooring.label, unit: "sqft", unitCostCents: flooring.costPerSqftCents, qty: (q) => q.livableSqft, source: "allowance" },
@@ -147,7 +186,12 @@ const CONTINGENCY_PCT = 0.1;
 const CONCEPT_RANGE_PCT = 0.15;
 
 /** Bump when unit costs or entries change — shown on every estimate. */
-export const PRICE_BOOK_VERSION = "buildsphere-book-v1";
+/**
+ * Bumped to v2 when roofing moved from a footprint proxy to measured,
+ * pitch-corrected roof area. Quantities on bid sheets issued under v1 differ;
+ * the version on every estimate is how the two are told apart.
+ */
+export const PRICE_BOOK_VERSION = "buildsphere-book-v2";
 
 /** One provenance string per line (§22.3): book, factors, quantity basis. */
 function provenance(entry: BookEntry, factor: number, regionCode: string, style: number): string {
@@ -166,7 +210,7 @@ export function estimateRevision(
 ): Estimate {
   const factor = REGION_FACTORS[regionCode] ?? 1.0;
   const styleFactor = styleInfo(finishes.styleKey)?.costFactor ?? 1.0;
-  const q = takeoff(model);
+  const q = takeoff(model, finishes.styleKey);
 
   const lineItems: EstimateLineItem[] = [...PRICE_BOOK, ...finishBook(finishes)]
     .map((entry, i) => {
