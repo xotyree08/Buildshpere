@@ -8,7 +8,7 @@
 
 import type { HomeStyle, ParametricModel } from "../types";
 import { WALL_HEIGHT_FT } from "./iso";
-import { roofFor } from "./roof";
+import { buildRoof } from "./roofgeom";
 
 /** North is the window-rich facade in generated plans — the natural front. */
 export type ElevationDirection = "north" | "east";
@@ -56,7 +56,9 @@ export function buildElevation(
   // North view spans the x axis (facing the front); east view spans y.
   const axis: 0 | 1 = direction === "north" ? 0 : 1;
   const wall: "n" | "e" = direction === "north" ? "n" : "e";
-  const { form, steepness } = roofFor(style);
+  // The roof comes from the shared engine, so the elevation, the massing view
+  // and the 3D viewer cannot disagree about a shape they no longer each build.
+  const geom = buildRoof(model, style);
 
   const extents = Array.from({ length: model.levels }, (_, lvl) => levelExtent(model, lvl, axis));
   const ground = extents[0] ?? [0, 40];
@@ -64,17 +66,17 @@ export function buildElevation(
 
   // Roof profile sits on the top level; its shape depends on whether the
   // ridge runs along or across the view axis (same rule as the massing).
+  // The largest wing sets the silhouette; smaller wings sit below its ridge.
+  const primary = geom.wings.reduce<(typeof geom.wings)[number] | null>(
+    (best, w) => (!best || w.rect[2] * w.rect[3] > best.rect[2] * best.rect[3] ? w : best),
+    null,
+  );
+  const form = geom.form;
   const topLevel = model.levels - 1;
-  const topRooms = model.rooms.filter((r) => r.level === topLevel && r.kind !== "outdoor");
-  const tw =
-    Math.max(...topRooms.map((r) => r.rect[0] + r.rect[2]), 0) -
-    Math.min(...topRooms.map((r) => r.rect[0]), 0);
-  const td =
-    Math.max(...topRooms.map((r) => r.rect[1] + r.rect[3]), 0) -
-    Math.min(...topRooms.map((r) => r.rect[1]), 0);
-  const halfSpan = Math.min(tw, td) / 2;
-  const roofH = form === "flat" ? 0 : steepness * halfSpan;
-  const ridgeAlongX = tw >= td;
+  const roofH = primary ? primary.ridgeFt - primary.eaveFt : 0;
+  const ridgeAlongX = primary ? primary.ridgeAxis === "x" : true;
+  // Half the primary wing's short span — how far a hip pulls its ridge in.
+  const halfSpan = primary ? Math.min(primary.rect[2], primary.rect[3]) / 2 : 0;
   const ridgeParallel = (direction === "north" && ridgeAlongX) || (direction === "east" && !ridgeAlongX);
 
   const wallsTop = model.levels * WALL_HEIGHT_FT;
