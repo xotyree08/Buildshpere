@@ -124,6 +124,48 @@ describe("estimate", () => {
     expect(q.baths).toBe(2);
     expect(q.kitchens).toBe(1);
   });
+
+  it("the slab, the floors and the roof all measure the same building", () => {
+    // The estimate used to carry a roof sized from a footprint proxy over a
+    // slab sized from the sum of the room rectangles, which are not the same
+    // building: the corridors between rooms are poured, framed and roofed like
+    // everything else, and nothing modelled them.
+    const [concept] = generateConcepts(brief, 60);
+    const q = takeoff(concept.model, "farmhouse");
+    const modelledRooms = concept.model.rooms
+      .filter((r) => r.kind !== "outdoor")
+      .reduce((sum, r) => sum + r.rect[2] * r.rect[3], 0);
+
+    // Gross area holds every modelled room and then some, at the 75-95%
+    // net-to-gross ratio residential plans actually run at.
+    expect(q.grossFloorSqft).toBeGreaterThanOrEqual(modelledRooms);
+    expect(modelledRooms / q.grossFloorSqft).toBeGreaterThan(0.75);
+    expect(modelledRooms / q.grossFloorSqft).toBeLessThanOrEqual(1);
+
+    // One storey: the slab, the floor framing and the ceiling under the roof
+    // are all the same plane, so they must agree to the foot.
+    expect(concept.model.levels).toBe(1);
+    expect(q.grossFootprintSqft).toBe(q.grossFloorSqft);
+    expect(q.roofCoveredSqft).toBe(q.grossFootprintSqft);
+    // The roofing quantity is that plane corrected for pitch and eaves, so it
+    // is larger — never smaller, which would leave the building open to rain.
+    expect(q.roofSurfaceSqft).toBeGreaterThan(q.roofCoveredSqft);
+  });
+
+  it("pitch drives the roofing quantity; a flat roof is its own footprint", () => {
+    const [concept] = generateConcepts(brief, 60);
+    const flat = takeoff(concept.model, "modern");
+    const steep = takeoff(concept.model, "a_frame");
+    // Flat means flat: the only thing between the ceiling plane and the
+    // roofing quantity is the eave skirt, never a slope correction.
+    expect(flat.roofSurfaceSqft).toBeGreaterThan(flat.roofCoveredSqft);
+    expect(flat.roofSurfaceSqft / flat.roofCoveredSqft).toBeLessThan(1.25);
+    // 18:12 is nearly twice the material of a flat roof over the same house.
+    expect(steep.roofSurfaceSqft).toBeGreaterThan(flat.roofSurfaceSqft * 1.5);
+    // ...and it changes nothing else about the building.
+    expect(steep.grossFloorSqft).toBe(flat.grossFloorSqft);
+    expect(steep.livableSqft).toBe(flat.livableSqft);
+  });
 });
 
 describe("valueEngineering", () => {

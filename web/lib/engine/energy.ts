@@ -80,13 +80,19 @@ function envelope(model: ParametricModel, windowKey: string): Envelope {
   const windowArea = q.windows * WINDOW_SQFT;
   const grossWallArea = q.wallLf * 9;
   const wallArea = Math.max(0, grossWallArea - windowArea);
-  const footprint = q.livableSqft / q.levels + q.garageSqft;
+  // The thermal roof is the CEILING plane over conditioned space, not the
+  // sloped surface: in a vented attic the insulation sits flat on the ceiling,
+  // so a steeper roof adds no heat loss. The old line applied a 1.15 slope
+  // factor to the sloped area AND folded in the unheated garage, inflating
+  // this on both counts. Slab area still follows the ground floor.
+  const footprint = q.grossFootprintSqft;
+  const ceilingSqft = q.roofCoveredSqft - q.garageSqft;
   const volume = q.livableSqft * CEILING_FT;
   const windowU = WINDOW_U[windowKey] ?? WINDOW_U.vinyl_lowe;
   return {
     wallUa: wallArea / WALL_R,
     windowUa: windowArea * windowU,
-    roofUa: (footprint * 1.15) / ROOF_R,
+    roofUa: Math.max(0, ceilingSqft) / ROOF_R,
     slabUa: footprint * SLAB_U,
     infiltrationUa: 0.018 * volume * NATURAL_ACH,
     windowCount: q.windows,
