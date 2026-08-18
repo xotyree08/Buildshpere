@@ -12,7 +12,7 @@
 
 import { randomUUID } from "crypto";
 
-import { tierInfo, WALKTHROUGH_SHOTS, type CreditKind, type LicenseTier } from "../catalog/licenses";
+import { FREE_MAJOR_REVISIONS, tierInfo, WALKTHROUGH_SHOTS, type CreditKind, type LicenseTier } from "../catalog/licenses";
 import type { Db } from "./db";
 
 export interface ProjectLicense {
@@ -232,4 +232,57 @@ export async function reserveWalkthrough(
   }
   await addCredits(db, license.id, "walkthrough_shot", shots, "walkthrough reservation");
   return { ok: true, shots, remaining: spend.remaining };
+}
+
+/**
+ * Major revisions included before a project is licensed.
+ *
+ * Without this, not paying bought MORE freedom than paying: an unlicensed
+ * project could restructure a home forever while a Complete customer got
+ * seven rounds. A product where licensing takes something away is a product
+ * people are right not to trust, so the free tier is bounded too — at the
+ * cheapest tier's allowance, never below it.
+ *
+ * Buying does not consume this counter or inherit from it. The license
+ * ledger is separate, so a purchase always hands over its tier's full
+ * allowance no matter how much free exploring came first.
+ */
+export async function consumeFreeRevision(
+  db: Db,
+  userId: string,
+  projectId: string,
+): Promise<{ ok: true; remaining: number } | { ok: false; error: string }> {
+  const res = await db.query(
+    "select used from free_usage where user_id = $1 and project_id = $2 and kind = 'major_revision'",
+    [userId, projectId],
+  );
+  const used = Number(res.rows[0]?.used ?? 0);
+  if (used >= FREE_MAJOR_REVISIONS) {
+    return {
+      ok: false,
+      error:
+        `This project has used its ${FREE_MAJOR_REVISIONS} free major revisions. ` +
+        `Minor changes — finishes, fixtures, furniture, and small adjustments — stay free and unlimited. ` +
+        `Licensing this project starts its included revision rounds fresh: see onbuildsphere.com/pricing.`,
+    };
+  }
+
+  const now = new Date().toISOString();
+  await db.query(
+    `insert into free_usage (user_id, project_id, kind, used, updated_at)
+     values ($1, $2, 'major_revision', 1, $3)
+     on conflict (user_id, project_id, kind) do update set
+       used = free_usage.used + 1, updated_at = excluded.updated_at`,
+    [userId, projectId, now],
+  );
+  return { ok: true, remaining: FREE_MAJOR_REVISIONS - used - 1 };
+}
+
+/** How many free major revisions a project has left before licensing. */
+export async function freeRevisionsRemaining(db: Db, userId: string, projectId: string): Promise<number> {
+  const res = await db.query(
+    "select used from free_usage where user_id = $1 and project_id = $2 and kind = 'major_revision'",
+    [userId, projectId],
+  );
+  return Math.max(0, FREE_MAJOR_REVISIONS - Number(res.rows[0]?.used ?? 0));
 }

@@ -217,11 +217,12 @@ test("walk mode offers the metered renders and refuses honestly when unconfigure
   });
 });
 
-test("a major revision still commits on an unmetered project", async ({ page }) => {
+test("a major revision still commits on a signed-out, local-only project", async ({ page }) => {
   await generateProject(page);
-  // Adding a room is unambiguously major. Without a license to bill (no
-  // account, no project license) it must still land — metering gates paid
-  // deliverables, never the act of changing your mind.
+  // Adding a room is unambiguously major. A signed-out project lives only in
+  // this browser and has no server record to meter against, so it must still
+  // land. Signed-in projects draw on the free allowance instead; that
+  // boundary is covered by the licenses unit tests.
   await page.getByPlaceholder(/Request a change/).first().fill("add an office");
   await page.getByRole("button", { name: "Revise" }).first().click();
   await expect(page.locator("body")).toContainText(/rev 1/, { timeout: 30_000 });

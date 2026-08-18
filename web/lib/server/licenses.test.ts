@@ -1,13 +1,15 @@
 import { newDb } from "pg-mem";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { tierInfo, WALKTHROUGH_SHOTS } from "../catalog/licenses";
+import { FREE_MAJOR_REVISIONS, tierInfo, TIERS, WALKTHROUGH_SHOTS } from "../catalog/licenses";
 import { createUser, type AuthUser } from "./auth";
 import { ensureSchema, type Db } from "./db";
 import {
   addCredits,
   consumeCredit,
+  consumeFreeRevision,
   creditExhaustedMessage,
+  freeRevisionsRemaining,
   getLicense,
   grantLicense,
   hasActiveLicense,
@@ -152,5 +154,55 @@ describe("walkthrough reservation (one credit buys a whole tour)", () => {
     const denied = await reserveWalkthrough(db, user.id, "nope");
     expect(denied.ok).toBe(false);
     if (!denied.ok) expect(denied.error).toBe(LICENSE_REQUIRED_MESSAGE);
+  });
+});
+
+describe("free major revisions (licensing must never take something away)", () => {
+  it("an unlicensed project gets a bounded allowance, not an unlimited one", async () => {
+    for (let i = FREE_MAJOR_REVISIONS - 1; i >= 0; i--) {
+      expect(await consumeFreeRevision(db, user.id, "p1")).toEqual({ ok: true, remaining: i });
+    }
+    const dry = await consumeFreeRevision(db, user.id, "p1");
+    expect(dry.ok).toBe(false);
+    if (dry.ok) return;
+    expect(dry.error).toContain("free major revisions");
+    expect(dry.error).toContain("stay free and unlimited");
+  });
+
+  it("the free allowance never exceeds the cheapest tier — paying is never a step down", () => {
+    const cheapest = Math.min(
+      ...TIERS.map((t) => t.allowances.major_revision ?? 0).filter((n) => n > 0),
+    );
+    expect(FREE_MAJOR_REVISIONS).toBeLessThanOrEqual(cheapest);
+  });
+
+  it("licensing after exhausting the free allowance starts the tier's rounds fresh", async () => {
+    for (let i = 0; i < FREE_MAJOR_REVISIONS; i++) await consumeFreeRevision(db, user.id, "p1");
+    expect((await consumeFreeRevision(db, user.id, "p1")).ok).toBe(false);
+
+    await grantLicense(db, { userId: user.id, projectId: "p1", tier: "concept", source: "stripe" });
+    const license = await getLicense(db, user.id, "p1");
+    // Free usage does not carry into the licensed ledger: the customer paid,
+    // so they get the whole allowance the tier advertises.
+    expect(license?.remaining.major_revision).toBe(tierInfo("concept")!.allowances.major_revision);
+  });
+
+  it("every tier leaves a licensed project at least as many rounds as it had free", async () => {
+    for (const tier of TIERS) {
+      const projectId = `p-${tier.key}`;
+      await grantLicense(db, { userId: user.id, projectId, tier: tier.key, source: "stripe" });
+      const license = await getLicense(db, user.id, projectId);
+      expect(license?.remaining.major_revision ?? 0).toBeGreaterThanOrEqual(FREE_MAJOR_REVISIONS);
+    }
+  });
+
+  it("the allowance is per project and per owner", async () => {
+    for (let i = 0; i < FREE_MAJOR_REVISIONS; i++) await consumeFreeRevision(db, user.id, "p1");
+    // A different project of the same user is untouched...
+    expect(await freeRevisionsRemaining(db, user.id, "p2")).toBe(FREE_MAJOR_REVISIONS);
+    // ...and so is the same project id belonging to someone else.
+    const other = await createUser(db, "other2@example.com", "hunter2hunter2");
+    if (!other.ok) throw new Error("signup failed");
+    expect(await freeRevisionsRemaining(db, other.user.id, "p1")).toBe(FREE_MAJOR_REVISIONS);
   });
 });

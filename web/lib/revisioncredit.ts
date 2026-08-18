@@ -29,17 +29,27 @@ export async function authorizeRevision(
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ projectId, summary: scope.reasons.join("; ") }),
     });
-    const body = (await res.json()) as { metered?: boolean; remaining?: number; error?: string };
+    const body = (await res.json()) as {
+      metered?: boolean;
+      remaining?: number;
+      error?: string;
+      tier?: string;
+    };
     if (!res.ok) {
       return { ok: false, error: body.error ?? "This revision could not be authorized." };
     }
     if (!body.metered) return { ok: true, notice: null };
-    return {
-      ok: true,
-      notice:
-        `Major revision (${scope.reasons.join("; ")}) — ` +
-        `${body.remaining} revision round${body.remaining === 1 ? "" : "s"} remaining on this project.`,
-    };
+
+    const left = body.remaining ?? 0;
+    const plural = left === 1 ? "" : "s";
+    // An unlicensed project is spending its free allowance, not a paid round;
+    // saying so keeps the licensing offer honest instead of implying the
+    // customer already bought something.
+    const balance =
+      body.tier === "free"
+        ? `${left} free major revision${plural} left — licensing this project starts its included rounds fresh.`
+        : `${left} revision round${plural} remaining on this project.`;
+    return { ok: true, notice: `Major revision (${scope.reasons.join("; ")}) — ${balance}` };
   } catch {
     // A network failure must not silently hand out a paid round, and must
     // not silently eat the customer's change either: refuse and say why.

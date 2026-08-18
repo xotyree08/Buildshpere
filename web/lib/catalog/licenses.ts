@@ -26,6 +26,16 @@ export type CreditKind =
 /** Stops rendered per walkthrough — the reservation size. */
 export const WALKTHROUGH_SHOTS = 6;
 
+/**
+ * Major revisions included on an unlicensed project, per project.
+ *
+ * Deliberately equal to the cheapest tier's allowance rather than below it.
+ * Licensing must never take something away: at this number, buying Concept
+ * is neutral on this axis and grants a FRESH allowance on top of whatever
+ * was already used, while every other tier is strictly more generous.
+ */
+export const FREE_MAJOR_REVISIONS = 2;
+
 /** Kinds a customer never sees as a balance; they are plumbing. */
 export const INTERNAL_KINDS: CreditKind[] = ["walkthrough_shot"];
 
