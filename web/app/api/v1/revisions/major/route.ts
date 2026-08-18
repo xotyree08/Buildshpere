@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getDb } from "@/lib/server/db";
 import { isResponse, requireUser } from "@/lib/server/http";
-import { consumeCredit, getLicense, LICENSE_REQUIRED_MESSAGE } from "@/lib/server/licenses";
+import { consumeCredit, consumeFreeRevision, getLicense } from "@/lib/server/licenses";
 import { clientKey, RATE_LIMITED_MESSAGE, rateLimit } from "@/lib/server/ratelimit";
 
 /**
@@ -45,12 +45,19 @@ export async function POST(req: Request) {
   if (isResponse(user)) return NextResponse.json({ metered: false });
 
   const projectId = typeof body.projectId === "string" ? body.projectId : "";
-  const license = projectId ? await getLicense(db, user.id, projectId) : null;
-  // An unlicensed project is still free to design — the license gates the
-  // paid deliverables, not the act of changing your mind.
-  if (!license) return NextResponse.json({ metered: false });
-
   const note = typeof body.summary === "string" ? body.summary.slice(0, 200) : "major revision";
+  const license = projectId ? await getLicense(db, user.id, projectId) : null;
+
+  // Unlicensed projects draw on a small free allowance rather than an
+  // unlimited one. The point is not revenue — these changes cost nothing to
+  // compute — it is that licensing must never hand back less than exploring
+  // already gave. A purchase then starts its own rounds fresh.
+  if (!license) {
+    const free = await consumeFreeRevision(db, user.id, projectId);
+    if (!free.ok) return NextResponse.json({ error: free.error }, { status: 402 });
+    return NextResponse.json({ metered: true, remaining: free.remaining, tier: "free" });
+  }
+
   const spend = await consumeCredit(db, user.id, projectId, "major_revision", note);
   if (!spend.ok) return NextResponse.json({ error: spend.error }, { status: 402 });
 

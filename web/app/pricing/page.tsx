@@ -92,9 +92,10 @@ export default function PricingPage() {
         </section>
 
         <p style={{ color: "var(--muted)", fontSize: "0.9rem", maxWidth: 720 }}>
-          <strong>Exploring your design is always free and unlimited</strong> — the interactive 3-D
-          model, walking through the rooms, every plan and drawing, and revising by conversation
-          cost nothing on any tier. What a license includes are the rendered deliverables that cost
+          <strong>Exploring your design is free</strong> — the interactive 3-D model, walking
+          through the rooms, every plan and drawing, and minor changes of every kind cost nothing
+          and never run out. Unlicensed projects also include two major revisions to try the real
+          thing; licensing starts your tier&apos;s rounds fresh on top of that. What a license includes are the rendered deliverables that cost
           real money to produce: photoreal images, 360° panoramas, and rendered walkthroughs.
         </p>
 
