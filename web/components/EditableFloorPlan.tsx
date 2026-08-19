@@ -11,6 +11,7 @@ import {
   type Envelope,
 } from "@/lib/engine/edit";
 import type { ParametricModel } from "@/lib/types";
+import { labelFits, labelSize } from "@/lib/render/planlabel";
 
 /**
  * Direct manipulation of the plan: drag a room, drag a wall, slide a door.
@@ -310,7 +311,7 @@ export function EditableFloorPlan({
                   startDrag(e, { mode: "move", roomKey: room.key, startX: e.clientX, startY: e.clientY, dxFt: 0, dyFt: 0 });
                 }}
               />
-              {rw > 8 && rh > 5 && fitsLabel(room.label, rw) && (
+              {labelFits(room.label, rw, rh) && (
                 <text
                   x={rx + rw / 2}
                   y={ry + rh / 2}
@@ -424,10 +425,3 @@ const WALL_NAMES: Record<Edge, string> = { n: "north", s: "south", e: "east", w:
  * size per character for this face), and stay silent when even the floor of
  * that range would not fit — a misplaced label reads as a drafting error.
  */
-function labelSize(label: string, widthFt: number): number {
-  return Math.max(1.1, Math.min(2.4, widthFt / 6, (widthFt * 0.92) / (label.length * 0.55)));
-}
-
-function fitsLabel(label: string, widthFt: number): boolean {
-  return label.length * 0.55 * labelSize(label, widthFt) <= widthFt;
-}

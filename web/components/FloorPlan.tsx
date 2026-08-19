@@ -1,4 +1,5 @@
 import type { ParametricModel } from "@/lib/types";
+import { labelFits, labelSize } from "@/lib/render/planlabel";
 
 const ROOM_FILLS: Record<string, string> = {
   bedroom: "var(--plan-bedroom)",
@@ -50,13 +51,13 @@ export function FloorPlan({
               stroke={room.key === highlightKey ? "var(--accent)" : "var(--fg)"}
               strokeWidth={room.key === highlightKey ? 1 : 0.3}
             />
-            {w > 8 && d > 5 && (
+            {labelFits(room.label, w, d) && (
               <text
                 x={x + w / 2}
                 y={y + d / 2}
                 textAnchor="middle"
                 dominantBaseline="middle"
-                fontSize={Math.min(2.4, w / 6)}
+                fontSize={labelSize(room.label, w)}
                 fill="var(--fg)"
               >
                 {room.label}

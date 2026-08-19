@@ -47,10 +47,21 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
-      # --with-deps pulls OS packages through apt as well as the browser, and
-      # either half can stall on a bad mirror. Fail the step rather than the job.
-      - run: npx playwright install --with-deps chromium
-        timeout-minutes: 10
+      # Browsers are keyed on the lockfile, so a run only downloads when the
+      # pinned Playwright version changes.
+      - uses: actions/cache@v4
+        id: browsers
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('web/package-lock.json') }}
+      # Deliberately NOT --with-deps. That flag installs OS packages through
+      # apt, and apt is what hangs: two runs in a row stalled ten minutes on an
+      # unreachable Ubuntu mirror while the suite underneath takes one. The
+      # GitHub runner image already ships the libraries Chromium needs, so the
+      # browser download is all this needs to do.
+      - run: npx playwright install chromium
+        if: steps.browsers.outputs.cache-hit != 'true'
+        timeout-minutes: 6
       - run: npm run build
       - run: npm run e2e
 

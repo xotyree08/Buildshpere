@@ -122,26 +122,146 @@ function nominalDepth(spec: RoomSpec): number {
 }
 
 /**
- * Group specs into bands, closing a band when the next room would overrun the
- * buildable width. This is the rule that gives each variant its footprint, so
- * it still measures rooms at their natural width rather than their packed one.
+ * How far apart two rooms' natural depths may be and still share a band.
+ *
+ * Everything in a band ends up the same depth, and a room forced to a depth it
+ * did not ask for pays for it in width: the distortion goes as the SQUARE of
+ * the ratio. A bathroom wanting 6.5ft of depth in a band 11.4ft deep came out
+ * 5.3 x 11.4 — a corridor with a toilet in it, three times the proportion it
+ * asked for. Holding the ratio to a quarter holds the worst distortion to
+ * about 1.5x, and the sort below means rooms rarely test the limit.
  */
-function assignBands(specs: RoomSpec[], maxRowWidthFt: number): RoomSpec[][] {
-  const bands: RoomSpec[][] = [];
-  let current: RoomSpec[] = [];
-  let used = 0;
-  for (const spec of specs) {
-    const width = spec.areaSqft / nominalDepth(spec);
-    if (used + width > maxRowWidthFt && current.length > 0) {
-      bands.push(current);
-      current = [];
-      used = 0;
-    }
-    current.push(spec);
-    used += width;
+const BAND_DEPTH_TOLERANCE = 1.25;
+
+/**
+ * Order a storey's rooms for packing.
+ *
+ * Rooms are grouped by the depth they naturally want, deepest first, because
+ * a band gives every room in it one depth and the way to keep proportions is
+ * to put like with like: bedrooms with bedrooms, the baths and the utility
+ * rooms together. Packing in program order instead put a 6.5ft bathroom in a
+ * band with an 11.4ft bedroom and stretched the bathroom to fit.
+ *
+ * Two rooms are pinned rather than sorted. A front porch is the face of the
+ * house and belongs at the front, where it can also be the wide shallow thing
+ * it asked to be — sorted by depth it sank to the back of the plan and came
+ * out 6.6 x 18.2, a porch turned inside out. The garage is the opposite: a
+ * service mass that reads best as its own block at the back, and being deeper
+ * than anything else it would otherwise lead the whole plan.
+ */
+function orderForPacking(specs: RoomSpec[]): RoomSpec[] {
+  const rank = (spec: RoomSpec) => {
+    if (spec.kind === "outdoor" && /porch/i.test(spec.label)) return 0;
+    if (spec.kind === "garage") return 2;
+    return 1;
+  };
+  return specs
+    .map((spec, index) => ({ spec, index }))
+    .sort(
+      (a, b) =>
+        rank(a.spec) - rank(b.spec) ||
+        nominalDepth(b.spec) - nominalDepth(a.spec) ||
+        a.index - b.index,
+    )
+    .map((entry) => entry.spec);
+}
+
+/**
+ * Group specs into bands, closing a band when the next room would overrun the
+ * buildable width or wants a depth too far from the band's. The width rule is
+ * what gives each variant its footprint, so it still measures rooms at their
+ * natural width rather than their packed one.
+ */
+function assignBands(
+  specs: RoomSpec[],
+  maxRowWidthFt: number,
+  depthTolerance: number,
+): RoomSpec[][] {
+  // Rooms that want a similar depth belong together; the sort has already put
+  // them next to each other, so a group is just a run.
+  const groups: RoomSpec[][] = [];
+  for (const spec of orderForPacking(specs)) {
+    const depth = nominalDepth(spec);
+    const group = groups[groups.length - 1];
+    const deepest = group ? Math.max(...group.map(nominalDepth)) : 0;
+    const shallowest = group ? Math.min(...group.map(nominalDepth)) : 0;
+    const stretched =
+      group !== undefined &&
+      Math.max(deepest, depth) / Math.min(shallowest, depth) > depthTolerance;
+    if (!group || stretched) groups.push([spec]);
+    else group.push(spec);
   }
-  if (current.length > 0) bands.push(current);
+
+  // A group too wide for the lot becomes several bands of roughly equal width
+  // rather than one full band and a remainder. Splitting greedily left a
+  // bedroom standing alone in a band of its own because its group ran six
+  // inches over the buildable width, and that lone band put a step in the
+  // footprint and a corridor across the plan to reach it.
+  const bands: RoomSpec[][] = [];
+  for (const group of groups) {
+    const widthOf = (spec: RoomSpec) => spec.areaSqft / nominalDepth(spec);
+    let remainingWidth = group.reduce((sum, spec) => sum + widthOf(spec), 0);
+    let remainingBands = Math.max(1, Math.ceil(remainingWidth / maxRowWidthFt));
+    let current: RoomSpec[] = [];
+    let used = 0;
+    for (const spec of group) {
+      const width = widthOf(spec);
+      const target = remainingWidth / remainingBands;
+      // A little slack, so a room that overruns the target by inches stays put
+      // instead of starting a band for itself.
+      const balanced = used + width > target * 1.15 && remainingBands > 1;
+      // The buildable width is not a target, it is a wall. Letting the last
+      // band of a group ignore it put a 40ft row on a 30ft lot.
+      const overruns = used + width > maxRowWidthFt;
+      if (current.length > 0 && (balanced || overruns)) {
+        bands.push(current);
+        remainingBands -= 1;
+        remainingWidth -= used;
+        current = [];
+        used = 0;
+      }
+      current.push(spec);
+      used += width;
+    }
+    if (current.length > 0) bands.push(current);
+  }
   return bands;
+}
+
+/**
+ * Put rooms of the same kind together within a band.
+ *
+ * Grouping by depth gets the proportions right but scatters kinds: the two
+ * bathrooms came out with a laundry and a mechanical closet between them, and
+ * the plumbing engine found no wall carrying both fixture groups — the single
+ * cheapest plumbing decision in the house, gone. Clustering costs nothing
+ * (a band's depth and widths do not depend on the order within it) and reads
+ * better besides: a bath core, a bedroom wing.
+ *
+ * Kinds keep the order they first appear in, so nothing is imposed beyond
+ * "like with like" and the result stays deterministic.
+ */
+function clusterKinds(band: RoomSpec[]): RoomSpec[] {
+  const firstSeen = new Map<string, number>();
+  band.forEach((spec, index) => {
+    if (!firstSeen.has(spec.kind)) firstSeen.set(spec.kind, index);
+  });
+  return band
+    .map((spec, index) => ({ spec, index }))
+    .sort((a, b) => firstSeen.get(a.spec.kind)! - firstSeen.get(b.spec.kind)! || a.index - b.index)
+    .map((entry) => entry.spec);
+}
+
+/**
+ * Whether a corridor runs behind band `i`.
+ *
+ * A corridor is double-loaded: it serves the rooms on both sides of it, which
+ * is how a plan with a hall spine is actually laid out. Putting a corridor at
+ * every band boundary instead gave the middle bands one each side and pushed
+ * circulation to a quarter of the whole house — real homes run 10-15%.
+ */
+function hallwayAfter(index: number, bandCount: number): boolean {
+  return index % 2 === 0 && index + 1 < bandCount;
 }
 
 /**
@@ -200,10 +320,16 @@ function area(specs: RoomSpec[]): number {
  * meant. Each gap is now the hallway it always was — drawn, priced, floored
  * and heated like the rest of the house.
  */
-function packLevel(specs: RoomSpec[], level: number, maxRowWidthFt: number, startKey: number): Room[] {
+function packLevel(
+  specs: RoomSpec[],
+  level: number,
+  maxRowWidthFt: number,
+  startKey: number,
+  depthTolerance: number,
+): Room[] {
   const rooms: Room[] = [];
   let key = startKey;
-  const bands = assignBands(specs, maxRowWidthFt);
+  const bands = assignBands(specs, maxRowWidthFt, depthTolerance).map(clusterKinds);
   const laid: { topFt: number; depthFt: number; widthFt: number; roofedFt: number }[] = [];
   let z = 0;
 
@@ -240,18 +366,20 @@ function packLevel(specs: RoomSpec[], level: number, maxRowWidthFt: number, star
       if (column.some((spec) => spec.kind !== "outdoor")) roofed = x;
     }
     laid.push({ topFt: z, depthFt: bandDepth, widthFt: x, roofedFt: roofed });
-    z = round1(z + bandDepth + HALL_WIDTH_FT);
+    // Bands not separated by a corridor sit back to back, a wall apart.
+    z = round1(z + bandDepth + (hallwayAfter(laid.length - 1, bands.length) ? HALL_WIDTH_FT : WALL_FT));
   }
 
   // One hallway per gap, as wide as the wider of the two bands it serves, so
   // the storey reads as one connected floor rather than a stack of islands.
   for (let i = 0; i + 1 < laid.length; i++) {
+    if (!hallwayAfter(i, laid.length)) continue;
     const width = Math.max(laid[i].roofedFt, laid[i + 1].roofedFt);
     if (width <= 0) continue;
     rooms.push({
       key: `r${key++}`,
       kind: "hallway",
-      label: level === 0 ? (i === 0 ? "Hall" : `Hall ${i + 1}`) : `Hall L${level + 1}${i === 0 ? "" : ` ${i + 1}`}`,
+      label: level === 0 ? (i === 0 ? "Hall" : `Hall ${i / 2 + 1}`) : `Hall L${level + 1}${i === 0 ? "" : ` ${i / 2 + 1}`}`,
       level,
       rect: [
         round1(WALL_FT / 2),
@@ -306,11 +434,15 @@ function addOpenings(model: ParametricModel): void {
  * Shared by initial generation and by the revision engine, so a revised
  * program flows through exactly the same layout rules.
  */
-export function assembleModel(levelSpecs: RoomSpec[][], maxRowWidthFt: number): ParametricModel {
+export function assembleModel(
+  levelSpecs: RoomSpec[][],
+  maxRowWidthFt: number,
+  depthTolerance: number = BAND_DEPTH_TOLERANCE,
+): ParametricModel {
   const rooms: Room[] = [];
   let startKey = 0;
   levelSpecs.forEach((specs, level) => {
-    const packed = packLevel(specs, level, maxRowWidthFt, startKey);
+    const packed = packLevel(specs, level, maxRowWidthFt, startKey, depthTolerance);
     startKey += packed.length;
     rooms.push(...packed);
   });
@@ -397,14 +529,26 @@ export function generateConcepts(
       // A narrow variant on a big program can pack deeper than the lot
       // allows; widen the rows (never past the buildable width) until the
       // plan fits the depth budget too. Deterministic: fixed growth, bounded.
-      let built = assembleModel(levelSpecs.map((l) => [...l]), maxRow);
+      let tolerance = BAND_DEPTH_TOLERANCE;
+      let built = assembleModel(levelSpecs.map((l) => [...l]), maxRow, tolerance);
       if (depthBudget) {
         let guard = 0;
         while (guard++ < 8 && maxRow < lot && planDepthFt(built) > depthBudget) {
           maxRow = Math.min(lot, maxRow * 1.2);
-          built = assembleModel(levelSpecs.map((l) => [...l]), maxRow);
+          built = assembleModel(levelSpecs.map((l) => [...l]), maxRow, tolerance);
         }
-        // Width exhausted and still too deep: deepen the living rooms
+        // Width exhausted and still too deep: let rooms of unlike depth share
+        // a band after all. Grouping by depth is what keeps proportions, and
+        // it costs plan depth — every band it refuses to merge is another
+        // band. On a lot that cannot take the depth, a squarer bathroom beats
+        // a rear setback violation, so the guarantee yields here rather than
+        // the site plan. Ordinary lots never reach this.
+        for (const relaxed of [1.6, 2.2, Infinity]) {
+          if (planDepthFt(built) <= depthBudget) break;
+          tolerance = relaxed;
+          built = assembleModel(levelSpecs.map((l) => [...l]), maxRow, tolerance);
+        }
+        // Still too deep: deepen the living rooms
         // (lower aspect → narrower rooms → fuller rows), the way narrow-lot
         // homes are actually proportioned. Garages and outdoor spaces keep
         // their natural shape — a square garage helps nobody.
@@ -417,7 +561,7 @@ export function generateConcepts(
                 : { ...spec, aspect: Math.max(0.6, spec.aspect * scale) },
             ),
           );
-          built = assembleModel(deepened, maxRow);
+          built = assembleModel(deepened, maxRow, tolerance);
         }
       }
       return built;
