@@ -76,8 +76,25 @@ function fixture(type: FixtureType, x: number, z: number): Fixture {
   return { type, label: LABELS[type], x, z, wsfu: WSFU[type] };
 }
 
+/**
+ * Where the water heater lives: the mechanical room if there is one,
+ * otherwise the garage.
+ *
+ * This used to be "any room of kind closet", which was true while the only
+ * closet in the programme was the mechanical one. A primary suite has a
+ * walk-in, and the house acquired a second water heater — in a wardrobe.
+ */
+function heaterHost(model: ParametricModel): Room | null {
+  const mechanical = model.rooms.filter(
+    (room) => room.kind === "closet" && /mechanical|utility|storage/i.test(room.label),
+  );
+  if (mechanical.length > 0) return mechanical[0];
+  return model.rooms.find((room) => room.kind === "garage") ?? null;
+}
+
 export function buildPlumbingPlan(model: ParametricModel): PlumbingPlan {
   const rooms: { room: Room; fixtures: Fixture[] }[] = [];
+  const host = heaterHost(model);
 
   for (const room of model.rooms) {
     const [x, z, w, d] = room.rect;
@@ -101,14 +118,10 @@ export function buildPlumbingPlan(model: ParametricModel): PlumbingPlan {
         fixtures.push(fixture("laundry_sink", x + 4.5, z + 1.2));
         break;
       case "garage":
-        // Water heater in the garage corner (or mechanical room if present).
-        if (!model.rooms.some((r) => r.kind === "closet")) {
-          fixtures.push(fixture("water_heater", x + 1.6, z + d - 1.6));
-        }
+        if (host?.key === room.key) fixtures.push(fixture("water_heater", x + 1.6, z + d - 1.6));
         break;
       case "closet":
-        // "Mechanical / Storage" closets host the water heater.
-        fixtures.push(fixture("water_heater", x + w / 2, z + d / 2));
+        if (host?.key === room.key) fixtures.push(fixture("water_heater", x + w / 2, z + d / 2));
         break;
       default:
         break;

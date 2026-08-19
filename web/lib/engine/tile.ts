@@ -23,13 +23,20 @@ export type Rect = [number, number, number, number];
  * office came out 33ft x 3.6ft that way. When the leftover would be that thin,
  * the row takes everything instead and there is no leftover.
  */
-export const MIN_CELL_FT = 5;
+export const MIN_CELL_FT = 6;
 
 export interface TileItem {
   key: string;
   areaSqft: number;
   /** Preferred width:depth. */
   aspect: number;
+  /**
+   * Narrowest this room can usefully be, from what has to fit in it. A
+   * bedroom needs a bed and a way round it; a closet needs neither. Without
+   * this the tiler happily returned 8ft bedrooms — legal, and a queen bed
+   * does not fit beside them.
+   */
+  minFt?: number;
   /** Placed inside this item's own cell, so they always end up together. */
   children?: TileItem[];
 }
@@ -65,7 +72,8 @@ function rowWorst(row: TileItem[], side: number, along: "x" | "z"): number {
     // this the tiler would happily trade a 24ft x 1.9ft closet for slightly
     // better aspect ratios elsewhere in the row.
     const narrowest = Math.min(run, thickness);
-    const penalty = narrowest >= MIN_CELL_FT ? 1 : 10 * (MIN_CELL_FT / Math.max(narrowest, 0.1));
+    const floor = item.minFt ?? MIN_CELL_FT;
+    const penalty = narrowest >= floor ? 1 : 10 * (floor / Math.max(narrowest, 0.1));
     worst = Math.max(worst, distortion(aspect, item.aspect) * penalty);
   }
   return worst;
@@ -78,7 +86,7 @@ function rowWorst(row: TileItem[], side: number, along: "x" | "z"): number {
  * slivers, and a row stops growing at the point where taking one more room
  * would make the worst room in it worse.
  */
-function squarify(items: TileItem[], rect: Rect): Tile[] {
+function squarify(items: TileItem[], rect: Rect, flip = false): Tile[] {
   const out: Tile[] = [];
   // Squarify depends on its input being sorted largest first: fed in
   // programme order it makes good cells for the first rooms and slivers for
@@ -94,8 +102,14 @@ function squarify(items: TileItem[], rect: Rect): Tile[] {
       out.push(...emit(remaining[0], [x, z, w, d]));
       break;
     }
-    const along: "x" | "z" = w <= d ? "x" : "z";
-    const side = Math.min(w, d);
+    // Rows normally run along the shorter side, which is what keeps cells
+    // from coming out as slivers. Running them the other way is sometimes
+    // better for a small group whose rooms want a particular orientation —
+    // a primary suite came out with the bedroom 12ft x 19ft the other way —
+    // so both are tried and scored.
+    const shortFirst = w <= d;
+    const along: "x" | "z" = (flip ? !shortFirst : shortFirst) ? "x" : "z";
+    const side = along === "x" ? w : d;
 
     let cut = 1;
     let best = rowWorst(remaining.slice(0, 1), side, along);
@@ -150,10 +164,13 @@ function emit(item: TileItem, rect: Rect): Tile[] {
 }
 
 /** Every leaf's target proportion, by key. */
-function targetsOf(items: TileItem[], into = new Map<string, number>()): Map<string, number> {
+function targetsOf(
+  items: TileItem[],
+  into = new Map<string, { aspect: number; minFt: number }>(),
+): Map<string, { aspect: number; minFt: number }> {
   for (const item of items) {
     if (item.children && item.children.length > 0) targetsOf(item.children, into);
-    else into.set(item.key, item.aspect);
+    else into.set(item.key, { aspect: item.aspect, minFt: item.minFt ?? MIN_CELL_FT });
   }
   return into;
 }
@@ -166,15 +183,22 @@ function targetsOf(items: TileItem[], into = new Map<string, number>()): Map<str
  * recursion later, which is why every fix for one sliver produced another
  * somewhere else.
  */
-function scoreTiles(tiles: Tile[], targets: Map<string, number>): number {
-  let worst = 1;
+function scoreTiles(tiles: Tile[], targets: Map<string, { aspect: number; minFt: number }>): number {
+  // Summed, not maxed. Scoring on the worst cell alone made the comparison
+  // blind: if every candidate had the same worst room — a powder room, say —
+  // they all scored identically and nothing else in the plan could break the
+  // tie, so three bedrooms staying nine feet wide cost a candidate nothing.
+  let total = 0;
   for (const placed of tiles) {
     const [, , w, d] = placed.rect;
+    const want = targets.get(placed.key);
     const narrowest = Math.min(w, d);
-    const penalty = narrowest >= MIN_CELL_FT ? 1 : 10 * (MIN_CELL_FT / Math.max(narrowest, 0.1));
-    worst = Math.max(worst, distortion(w / d, targets.get(placed.key) ?? 1) * penalty);
+    const floor = want?.minFt ?? MIN_CELL_FT;
+    const penalty = narrowest >= floor ? 1 : 10 * (floor / Math.max(narrowest, 0.1));
+    const off = distortion(w / d, want?.aspect ?? 1) * penalty;
+    total += off * off;
   }
-  return worst;
+  return total;
 }
 
 /**
@@ -184,7 +208,7 @@ function scoreTiles(tiles: Tile[], targets: Map<string, number>): number {
  * proportions when the areas are lopsided. Neither wins everywhere, so both
  * are tried.
  */
-function bisect(items: TileItem[], rect: Rect): Tile[] {
+function bisect(items: TileItem[], rect: Rect, flip = false): Tile[] {
   const live = items.filter((item) => itemArea(item) > 0);
   if (live.length === 0) return [];
   if (live.length === 1) return emit(live[0], rect);
@@ -202,12 +226,12 @@ function bisect(items: TileItem[], rect: Rect): Tile[] {
   const tail = sorted.slice(cut);
   const headArea = head.reduce((sum, item) => sum + itemArea(item), 0);
   const [x, z, w, d] = rect;
-  if (w >= d) {
+  if (flip ? w < d : w >= d) {
     const wa = (w * headArea) / total;
-    return [...bisect(head, [x, z, wa, d]), ...bisect(tail, [x + wa, z, w - wa, d])];
+    return [...bisect(head, [x, z, wa, d], flip), ...bisect(tail, [x + wa, z, w - wa, d], flip)];
   }
   const da = (d * headArea) / total;
-  return [...bisect(head, [x, z, w, da]), ...bisect(tail, [x, z + da, w, d - da])];
+  return [...bisect(head, [x, z, w, da], flip), ...bisect(tail, [x, z + da, w, d - da], flip)];
 }
 
 /**
@@ -218,7 +242,22 @@ export function tile(items: TileItem[], rect: Rect): Tile[] {
   const targets = targetsOf(items);
   let best: Tile[] | null = null;
   let bestScore = Infinity;
-  for (const candidate of [squarify(items, rect), bisect(items, rect)]) {
+  // Eight arrangements, not one. Every hand-tuned heuristic in this file's
+  // history fixed the case in front of it and broke another somewhere else;
+  // searching a handful of genuinely different arrangements and keeping the
+  // one that scores best is what stops that, and it costs microseconds.
+  const reversed = [...items].reverse();
+  const strategies = [
+    squarify(items, rect),
+    squarify(items, rect, true),
+    squarify(reversed, rect),
+    squarify(reversed, rect, true),
+    bisect(items, rect),
+    bisect(items, rect, true),
+    bisect(reversed, rect),
+    bisect(reversed, rect, true),
+  ];
+  for (const candidate of strategies) {
     const score = scoreTiles(candidate, targets);
     if (score < bestScore) {
       bestScore = score;
