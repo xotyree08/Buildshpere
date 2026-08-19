@@ -158,11 +158,28 @@ const ZONE_FRONT = 0;
 const ZONE_BACK = 1;
 
 function zoneOf(spec: RoomSpec): number {
-  if (spec.kind === "garage") return ZONE_FRONT;
   if (spec.kind === "living" || spec.kind === "kitchen" || spec.kind === "dining") return ZONE_FRONT;
   if (spec.kind === "office" || spec.kind === "theater" || spec.kind === "gym") return ZONE_FRONT;
   return ZONE_BACK;
 }
+
+/**
+ * Narrowest each kind of room can usefully be — what has to fit in it, not
+ * what the code allows. A bedroom takes a queen bed and a way past it; a
+ * living room takes a sofa and a walkway; a closet takes neither.
+ */
+const MIN_WIDTH: Partial<Record<RoomKind, number>> = {
+  bedroom: 11,
+  living: 11,
+  dining: 10,
+  kitchen: 9,
+  office: 8,
+  gym: 9,
+  theater: 10,
+  bathroom: 5,
+  laundry: 5,
+  closet: 4,
+};
 
 /**
  * Build the tiling items for a storey, grouping rooms that must end up
@@ -183,6 +200,11 @@ function tileItems(specs: RoomSpec[]): TileItem[] {
       key: spec.label,
       areaSqft: spec.areaSqft + WALL_FT * (width + depth),
       aspect: spec.aspect,
+      // The floor applies to the CELL and the room sits half a partition
+      // inside each face of it, so the wall is added on — otherwise a ten-foot
+      // minimum hands back a nine-and-a-half-foot room. A powder room is the
+      // one bathroom that is genuinely narrow.
+      minFt: (/powder/i.test(spec.label) ? 3 : (MIN_WIDTH[spec.kind] ?? 0)) + WALL_FT,
     };
     if (!spec.suite) {
       items.push(leaf);
@@ -220,7 +242,13 @@ function packLevel(specs: RoomSpec[], level: number, maxRowWidthFt: number, star
   const isPorch = (spec: RoomSpec) => spec.kind === "outdoor" && /porch/i.test(spec.label);
   const porches = specs.filter(isPorch);
   const terraces = specs.filter((spec) => spec.kind === "outdoor" && !isPorch(spec));
-  const indoor = specs.filter((spec) => spec.kind !== "outdoor");
+  // A garage is a mass, not a room to be tiled: two cars park side by side or
+  // they do not park, and a tiler asked to fill a rectangle will return one
+  // 20ft wide and 26ft deep. It stands at the front with the porch beside it,
+  // at the size it actually is — a garage-forward house with a porch off the
+  // entry, the commonest plan there is.
+  const garages = specs.filter((spec) => spec.kind === "garage");
+  const indoor = specs.filter((spec) => spec.kind !== "outdoor" && spec.kind !== "garage");
 
   const width = Math.max(MIN_ROOM_FT * 2, maxRowWidthFt);
   const emit = (spec: RoomSpec, rect: [number, number, number, number]) => {
@@ -259,7 +287,25 @@ function packLevel(specs: RoomSpec[], level: number, maxRowWidthFt: number, star
   };
 
   let z = 0;
-  z = round1(z + strip(porches, z));
+  let frontDepth = 0;
+  let frontX = 0;
+  for (const spec of [...porches, ...garages]) {
+    // Each keeps the shape it asked for. If what is left of the width cannot
+    // take it, it goes on the next line rather than being squeezed into the
+    // gap — squeezing turned a porch into a 3.5ft x 29.5ft passage.
+    const natural = Math.sqrt(spec.areaSqft / spec.aspect);
+    const wanted = spec.areaSqft / natural;
+    if (frontX > 0 && wanted > width - frontX) {
+      z = round1(z + frontDepth);
+      frontX = 0;
+      frontDepth = 0;
+    }
+    const w = Math.min(wanted, width);
+    emit(spec, [frontX, z, w, spec.areaSqft / w]);
+    frontX = round1(frontX + w);
+    frontDepth = Math.max(frontDepth, spec.areaSqft / w);
+  }
+  z = round1(z + frontDepth);
 
   // Every area below is the room PLUS its share of the walls, because that is
   // what the tiler places; measuring the rectangle from bare room areas and
