@@ -76,10 +76,15 @@ describe("buildPlumbingPlan", () => {
 
   it("adjacent plumbing rooms produce a wet wall worth stacking", () => {
     const p = plan();
-    // The generated plan places the two baths side by side.
+    // The plan gathers the laundry, the powder room and the hall bath into
+    // one service core, so several walls carry two fixture groups apiece.
     expect(p.wetWalls.length).toBeGreaterThanOrEqual(1);
-    // The side-by-side bathrooms share a wall carrying both fixture groups.
-    expect(p.wetWalls.some((w) => w.fixtures >= 6)).toBe(true);
+    // Four is two plumbed rooms genuinely sharing a stack. It used to be six,
+    // on the strength of the two full baths sitting side by side — but that
+    // only happened while the ensuite was stranded across the house from the
+    // bedroom it serves. An ensuite belongs to its bedroom, and the plumbing
+    // economy that costs is the right trade.
+    expect(Math.max(...p.wetWalls.map((w) => w.fixtures))).toBeGreaterThanOrEqual(4);
   });
 
   it("is deterministic and honest about scope", () => {

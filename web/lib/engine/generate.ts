@@ -22,25 +22,47 @@ import type {
 import { conceptName, styleInfo, type MassingKey } from "../catalog/styles";
 import { massingBias, PORCH_STYLES } from "./roof";
 import { WALL_FT } from "./adjacency";
+import { distortion, itemArea, tile, type TileItem } from "./tile";
 
 export interface RoomSpec {
   kind: RoomKind;
   label: string;
   areaSqft: number;
-  /** Preferred width:depth aspect (width across the row). */
+  /** Preferred width:depth aspect. */
   aspect: number;
   public: boolean;
+  /**
+   * Rooms that belong to one another — a primary suite, where the bath and
+   * the walk-in open off the bedroom rather than sitting somewhere else in
+   * the house. A suite is one cell to the tiler and tiles its own interior,
+   * so nothing can be placed between its rooms.
+   */
+  suite?: string;
+  /**
+   * Narrowest this room can be, when what has to fit in it is not implied by
+   * its kind. Two cars park side by side or they do not park: the width
+   * search shrank a two-car garage to 17.9ft across, and the plan read fine
+   * on every other measure while being a garage you cannot use.
+   */
+  minFt?: number;
 }
 
 const HALL_WIDTH_FT = 4;
+
+/** Below this a room stops being a room. */
+const MIN_ROOM_FT = 4;
 
 function programRooms(p: ProgramRequirements, style?: HomeStyle): RoomSpec[] {
   const specs: RoomSpec[] = [
     { kind: "living", label: "Living Room", areaSqft: 320, aspect: 1.3, public: true },
     { kind: "kitchen", label: "Kitchen", areaSqft: 200, aspect: 1.4, public: true },
     { kind: "dining", label: "Dining Room", areaSqft: 168, aspect: 1.2, public: true },
-    { kind: "laundry", label: "Laundry", areaSqft: 64, aspect: 1.0, public: false },
-    { kind: "closet", label: "Mechanical / Storage", areaSqft: 48, aspect: 1.0, public: false },
+    // The service rooms are one cell. A powder room is thirty square feet —
+    // too little to be placed on its own without coming out a slot — and a
+    // laundry, a mechanical closet and a powder room share their plumbing
+    // wall anyway, so grouping them is both the fix and the right plan.
+    { kind: "laundry", label: "Laundry", areaSqft: 64, aspect: 1.0, public: false, suite: "service" },
+    { kind: "closet", label: "Mechanical / Storage", areaSqft: 48, aspect: 1.0, public: false, suite: "service" },
   ];
   for (let i = 1; i <= p.bedrooms; i++) {
     const primary = i === 1;
@@ -50,8 +72,20 @@ function programRooms(p: ProgramRequirements, style?: HomeStyle): RoomSpec[] {
       areaSqft: primary ? 240 : 156,
       aspect: 1.2,
       public: false,
+      suite: primary ? "primary" : undefined,
     });
   }
+  // Every primary suite has a walk-in. Leaving it out of the programme is part
+  // of why the primary bath had nothing to pair with and ended up loose in the
+  // plan, on the far side of the house from the bedroom it serves.
+  specs.push({
+    kind: "closet",
+    label: "Walk-in Closet",
+    areaSqft: 60,
+    aspect: 1.2,
+    public: false,
+    suite: "primary",
+  });
   // "2.5 baths" is a real program: full baths plus a powder room. The
   // half bath is its own smaller room — engines downstream recognize it
   // by the "Powder Room" label (lavatory + water closet, no shower).
@@ -64,10 +98,20 @@ function programRooms(p: ProgramRequirements, style?: HomeStyle): RoomSpec[] {
       areaSqft: i === 1 ? 90 : 60,
       aspect: 1.4,
       public: false,
+      suite: i === 1 ? "primary" : undefined,
     });
   }
   if (hasHalfBath) {
-    specs.push({ kind: "bathroom", label: "Powder Room", areaSqft: 30, aspect: 1.5, public: false });
+    specs.push({
+      kind: "bathroom",
+      label: "Powder Room",
+      areaSqft: 30,
+      // Powder rooms are narrow and deep — a lavatory and a water closet in
+      // line. Asking for 1.5 asked for a shape nobody builds.
+      aspect: 0.5,
+      public: false,
+      suite: "service",
+    });
   }
   if (p.office) specs.push({ kind: "office", label: "Office", areaSqft: 132, aspect: 1.1, public: false });
   if (p.gym) specs.push({ kind: "gym", label: "Gym", areaSqft: 180, aspect: 1.3, public: false });
@@ -80,6 +124,9 @@ function programRooms(p: ProgramRequirements, style?: HomeStyle): RoomSpec[] {
       label: `${p.garageBays}-Car Garage`,
       areaSqft: 264 * p.garageBays,
       aspect: p.garageBays >= 2 ? 1.6 : 0.8,
+      // Nine and a half feet per bay, plus a couple for the walls between the
+      // cars and the studs: a two-car garage is twenty-one feet across.
+      minFt: 9.5 * p.garageBays + 2,
       public: false,
     });
   // Porch styles carry their identity in the plan, not just the price.
@@ -98,16 +145,6 @@ function programRooms(p: ProgramRequirements, style?: HomeStyle): RoomSpec[] {
 }
 
 /**
- * Narrowest a room may be once its band's depth is fixed.
- *
- * Below this a room stops being a room and becomes a slot, so instead of
- * squeezing it the packer stands it in a column behind its neighbour — a
- * laundry over a mechanical closet, the way a real plan stacks small service
- * spaces. Four feet is a galley: tight, but a width people actually build.
- */
-const MIN_CELL_FT = 4;
-
-/*
  * Interior partitions come from ./adjacency, which is also where every engine
  * asking "do these rooms share a wall?" gets its answer. Modelling the wall is
  * what keeps gross floor area honestly above the sum of the rooms, and it is
@@ -116,279 +153,330 @@ const MIN_CELL_FT = 4;
  * move a single grid step in any direction.
  */
 
-/** Depth a room wants on its own, from its area and preferred aspect. */
-function nominalDepth(spec: RoomSpec): number {
-  return Math.sqrt(spec.areaSqft / spec.aspect);
+/**
+ * Shallowest a zone may be and still hold rooms rather than strips.
+ *
+ * Halving a storey guarantees it a corridor, but half of a shallow storey is
+ * a seven-foot band, and a primary bedroom in one came out 33.9ft x 6.9ft.
+ * A storey too shallow to halve is left whole, with its landing across the end.
+ */
+const MIN_ZONE_DEPTH_FT = 12;
+
+/** Circulation as a share of the storey — real homes run 10-15%. */
+const HALL_FRACTION = 0.11;
+
+/**
+ * Where a room sits in the sequence you walk through a house.
+ *
+ * The day side of a house faces the street and the night side does not, and a
+ * plan that ignores that is a list of rectangles rather than a home. Two
+ * zones, a corridor between them: everything you arrive into and entertain in
+ * at the front, everything you sleep and wash and launder in behind.
+ */
+const ZONE_FRONT = 0;
+const ZONE_BACK = 1;
+
+function zoneOf(spec: RoomSpec): number {
+  if (spec.kind === "living" || spec.kind === "kitchen" || spec.kind === "dining") return ZONE_FRONT;
+  if (spec.kind === "office" || spec.kind === "theater" || spec.kind === "gym") return ZONE_FRONT;
+  return ZONE_BACK;
 }
 
 /**
- * How far apart two rooms' natural depths may be and still share a band.
- *
- * Everything in a band ends up the same depth, and a room forced to a depth it
- * did not ask for pays for it in width: the distortion goes as the SQUARE of
- * the ratio. A bathroom wanting 6.5ft of depth in a band 11.4ft deep came out
- * 5.3 x 11.4 — a corridor with a toilet in it, three times the proportion it
- * asked for. Holding the ratio to a quarter holds the worst distortion to
- * about 1.5x, and the sort below means rooms rarely test the limit.
+ * Narrowest each kind of room can usefully be — what has to fit in it, not
+ * what the code allows. A bedroom takes a queen bed and a way past it; a
+ * living room takes a sofa and a walkway; a closet takes neither.
  */
-const BAND_DEPTH_TOLERANCE = 1.25;
+const MIN_WIDTH: Partial<Record<RoomKind, number>> = {
+  bedroom: 11,
+  living: 11,
+  dining: 10,
+  kitchen: 9,
+  office: 8,
+  gym: 9,
+  theater: 10,
+  bathroom: 5,
+  laundry: 5,
+  closet: 4.5,
+};
 
 /**
- * Order a storey's rooms for packing.
- *
- * Rooms are grouped by the depth they naturally want, deepest first, because
- * a band gives every room in it one depth and the way to keep proportions is
- * to put like with like: bedrooms with bedrooms, the baths and the utility
- * rooms together. Packing in program order instead put a 6.5ft bathroom in a
- * band with an 11.4ft bedroom and stretched the bathroom to fit.
- *
- * Two rooms are pinned rather than sorted. A front porch is the face of the
- * house and belongs at the front, where it can also be the wide shallow thing
- * it asked to be — sorted by depth it sank to the back of the plan and came
- * out 6.6 x 18.2, a porch turned inside out. The garage is the opposite: a
- * service mass that reads best as its own block at the back, and being deeper
- * than anything else it would otherwise lead the whole plan.
+ * Build the tiling items for a storey, grouping rooms that must end up
+ * touching. A group is one cell to the tiler and tiles its own interior, so
+ * an ensuite cannot be separated from its bedroom by anything at all.
  */
-function orderForPacking(specs: RoomSpec[]): RoomSpec[] {
-  const rank = (spec: RoomSpec) => {
-    if (spec.kind === "outdoor" && /porch/i.test(spec.label)) return 0;
-    if (spec.kind === "garage") return 2;
-    return 1;
-  };
-  return specs
-    .map((spec, index) => ({ spec, index }))
-    .sort(
-      (a, b) =>
-        rank(a.spec) - rank(b.spec) ||
-        nominalDepth(b.spec) - nominalDepth(a.spec) ||
-        a.index - b.index,
-    )
-    .map((entry) => entry.spec);
-}
-
-/**
- * Group specs into bands, closing a band when the next room would overrun the
- * buildable width or wants a depth too far from the band's. The width rule is
- * what gives each variant its footprint, so it still measures rooms at their
- * natural width rather than their packed one.
- */
-function assignBands(
-  specs: RoomSpec[],
-  maxRowWidthFt: number,
-  depthTolerance: number,
-): RoomSpec[][] {
-  // Rooms that want a similar depth belong together; the sort has already put
-  // them next to each other, so a group is just a run.
-  const groups: RoomSpec[][] = [];
-  for (const spec of orderForPacking(specs)) {
-    const depth = nominalDepth(spec);
-    const group = groups[groups.length - 1];
-    const deepest = group ? Math.max(...group.map(nominalDepth)) : 0;
-    const shallowest = group ? Math.min(...group.map(nominalDepth)) : 0;
-    const stretched =
-      group !== undefined &&
-      Math.max(deepest, depth) / Math.min(shallowest, depth) > depthTolerance;
-    if (!group || stretched) groups.push([spec]);
-    else group.push(spec);
+function tileItems(specs: RoomSpec[]): TileItem[] {
+  const items: TileItem[] = [];
+  const suites = new Map<string, TileItem>();
+  // A room much smaller than the rest of its storey has nowhere good to go: a
+  // 60sqft bathroom placed among 200sqft rooms takes a full-depth strip and
+  // comes out 3.6ft wide. Pairing the small ones gives them a cell to share,
+  // which is both what fixes the shape and where a plan puts them anyway.
+  const loose = specs.filter((spec) => !spec.suite);
+  const mean = loose.reduce((sum, spec) => sum + spec.areaSqft, 0) / Math.max(1, loose.length);
+  const small = loose
+    .filter((spec) => spec.areaSqft < mean * 0.75)
+    .sort((a, b) => b.areaSqft - a.areaSqft || a.label.localeCompare(b.label));
+  const paired = new Map<string, string>();
+  for (let i = 0; i + 1 < small.length; i += 2) {
+    paired.set(small[i].label, `pair${i}`);
+    paired.set(small[i + 1].label, `pair${i}`);
   }
-
-  // A group too wide for the lot becomes several bands of roughly equal width
-  // rather than one full band and a remainder. Splitting greedily left a
-  // bedroom standing alone in a band of its own because its group ran six
-  // inches over the buildable width, and that lone band put a step in the
-  // footprint and a corridor across the plan to reach it.
-  const bands: RoomSpec[][] = [];
-  for (const group of groups) {
-    const widthOf = (spec: RoomSpec) => spec.areaSqft / nominalDepth(spec);
-    let remainingWidth = group.reduce((sum, spec) => sum + widthOf(spec), 0);
-    let remainingBands = Math.max(1, Math.ceil(remainingWidth / maxRowWidthFt));
-    let current: RoomSpec[] = [];
-    let used = 0;
-    for (const spec of group) {
-      const width = widthOf(spec);
-      const target = remainingWidth / remainingBands;
-      // A little slack, so a room that overruns the target by inches stays put
-      // instead of starting a band for itself.
-      const balanced = used + width > target * 1.15 && remainingBands > 1;
-      // The buildable width is not a target, it is a wall. Letting the last
-      // band of a group ignore it put a 40ft row on a 30ft lot.
-      const overruns = used + width > maxRowWidthFt;
-      if (current.length > 0 && (balanced || overruns)) {
-        bands.push(current);
-        remainingBands -= 1;
-        remainingWidth -= used;
-        current = [];
-        used = 0;
-      }
-      current.push(spec);
-      used += width;
+  // An odd one out joins the last pair rather than standing alone, which is
+  // the situation this exists to prevent.
+  if (small.length > 2 && small.length % 2 === 1) {
+    paired.set(small[small.length - 1].label, paired.get(small[small.length - 2].label)!);
+  }
+  for (const spec of specs) {
+    // Tile the room PLUS its share of the walls. The rectangle drawn is the
+    // interior, half a partition inside each face, so a cell sized to the
+    // programme area hands back a room several percent short of it — and the
+    // shortfall lands on the customer's square footage and their estimate.
+    const depth = Math.sqrt(spec.areaSqft / spec.aspect);
+    const width = spec.areaSqft / depth;
+    const leaf: TileItem = {
+      key: spec.label,
+      areaSqft: spec.areaSqft + WALL_FT * (width + depth),
+      aspect: spec.aspect,
+      // The floor applies to the CELL and the room sits half a partition
+      // inside each face of it, so the wall is added on — otherwise a ten-foot
+      // minimum hands back a nine-and-a-half-foot room. A powder room is the
+      // one bathroom that is genuinely narrow.
+      minFt: (spec.minFt ?? (/powder/i.test(spec.label) ? 3 : (MIN_WIDTH[spec.kind] ?? 0))) + WALL_FT,
+    };
+    const groupKey = spec.suite ?? paired.get(spec.label);
+    if (!groupKey) {
+      items.push(leaf);
+      continue;
     }
-    if (current.length > 0) bands.push(current);
+    let group = suites.get(groupKey);
+    if (!group) {
+      group = { key: `group:${groupKey}`, areaSqft: 0, aspect: 1.15, children: [], minFt: 0 };
+      suites.set(groupKey, group);
+      items.push(group);
+    }
+    group.children!.push(leaf);
+    // A group is only as placeable as its most demanding room. Without this
+    // the tiler happily gave a primary suite a cell seven feet deep and then
+    // discovered, one level down, that a bedroom does not fit in seven feet.
+    group.minFt = Math.max(group.minFt ?? 0, leaf.minFt ?? 0);
   }
-  return bands;
-}
 
-/**
- * Put rooms of the same kind together within a band.
- *
- * Grouping by depth gets the proportions right but scatters kinds: the two
- * bathrooms came out with a laundry and a mechanical closet between them, and
- * the plumbing engine found no wall carrying both fixture groups — the single
- * cheapest plumbing decision in the house, gone. Clustering costs nothing
- * (a band's depth and widths do not depend on the order within it) and reads
- * better besides: a bath core, a bedroom wing.
- *
- * Kinds keep the order they first appear in, so nothing is imposed beyond
- * "like with like" and the result stays deterministic.
- */
-function clusterKinds(band: RoomSpec[]): RoomSpec[] {
-  const firstSeen = new Map<string, number>();
-  band.forEach((spec, index) => {
-    if (!firstSeen.has(spec.kind)) firstSeen.set(spec.kind, index);
-  });
-  return band
-    .map((spec, index) => ({ spec, index }))
-    .sort((a, b) => firstSeen.get(a.spec.kind)! - firstSeen.get(b.spec.kind)! || a.index - b.index)
-    .map((entry) => entry.spec);
-}
-
-/**
- * Whether a corridor runs behind band `i`.
- *
- * A corridor is double-loaded: it serves the rooms on both sides of it, which
- * is how a plan with a hall spine is actually laid out. Putting a corridor at
- * every band boundary instead gave the middle bands one each side and pushed
- * circulation to a quarter of the whole house — real homes run 10-15%.
- */
-function hallwayAfter(index: number, bandCount: number): boolean {
-  return index % 2 === 0 && index + 1 < bandCount;
-}
-
-/**
- * Divide one band into columns that tile it exactly.
- *
- * Every room in a band shares one depth — the deepest room's, so that room
- * keeps the proportions it asked for and the others widen to match. A room
- * too narrow to stand alone at that depth joins the column to its left, and
- * the column's width is then set by the areas it carries, so the band is
- * filled edge to edge and floor to back with no room losing or gaining a
- * square foot.
- *
- * This is what stops the footprint coming out as a sawtooth. Rooms used to
- * keep their own depth inside a shared row, so a twelve-foot kitchen beside a
- * sixteen-foot living room left a four-foot notch in the outside wall, and
- * every such notch became its own roof wing with its own ridge.
- */
-function bandColumns(band: RoomSpec[]): { depthFt: number; columns: RoomSpec[][] } {
-  // Band depth is measured wall face to wall face: the deepest room's own
-  // depth plus the partition behind it.
-  const depthFt = Math.max(...band.map(nominalDepth)) + WALL_FT;
-  const columns: RoomSpec[][] = [];
-  for (const spec of band) {
-    const alone = spec.areaSqft / (depthFt - WALL_FT);
-    const previous = columns[columns.length - 1];
-    // Stacking costs a partition per room, so a column may only take another
-    // room while there is depth left to give it.
-    const room = previous ? depthFt - (previous.length + 1) * WALL_FT : 0;
-    if (alone >= MIN_CELL_FT || !previous || room <= 1) columns.push([spec]);
-    else previous.push(spec);
+  // Pairing only helps a small room that has another small room to pair with.
+  // On the sleeping side of a wide single storey there is exactly one — the
+  // hall bath, with the laundry and the mechanical closet already claimed by
+  // the service group — so it stood alone among two-hundred-square-foot
+  // bedrooms and took a full-depth strip: 3.6ft x 16.3ft. A lone small room
+  // joins the smallest group on its storey instead. Next to the laundry is
+  // where a hall bath goes anyway, and the two then share a wet wall.
+  // A group of one is not a group — upstairs the laundry stays downstairs and
+  // the service group is left holding the mechanical closet alone, which is a
+  // leaf wearing a group's clothes and hides from the rule below.
+  for (const item of items) {
+    if (item.children && item.children.length === 1) {
+      const only = item.children[0];
+      item.key = only.key;
+      item.areaSqft = only.areaSqft;
+      item.aspect = only.aspect;
+      item.minFt = only.minFt;
+      delete item.children;
+    }
   }
-  // A band that opens with a small room has nothing to its left to join, so
-  // it joins the column to its right instead.
-  while (columns.length > 1 && area(columns[0]) / (depthFt - WALL_FT) < MIN_CELL_FT) {
-    const [first] = columns.splice(0, 1);
-    columns[0].unshift(...first);
+  // Only service rooms are folded. A kitchen can be the smallest cell on the
+  // day side of a compact storey and it is still a room in its own right:
+  // folding one into a cell with the dining room turned it into 9.2ft x 21.6ft.
+  const foldable = new Set(
+    specs.filter((spec) => ["bathroom", "closet", "laundry"].includes(spec.kind)).map((spec) => spec.label),
+  );
+  const meanCell = items.reduce((sum, item) => sum + itemArea(item), 0) / Math.max(1, items.length);
+  for (const item of [...items]) {
+    if (item.children || !foldable.has(item.key) || itemArea(item) >= meanCell * 0.6) continue;
+    // Pair with the smallest room that is not already spoken for, and only
+    // fall back to an existing group if there is none. Sharing a cell with
+    // one other room is what stops a 55sqft closet taking the full depth of
+    // a sleeping zone and coming out 3.7ft across; folding it into the primary
+    // suite would fix the shape by putting the furnace in the wardrobe.
+    const others = items.filter((other) => other !== item);
+    const leaves = others.filter((other) => !other.children);
+    const host = (leaves.length > 0 ? leaves : others).sort(
+      (a, b) => itemArea(a) - itemArea(b) || a.key.localeCompare(b.key),
+    )[0];
+    if (!host) continue;
+    if (!host.children) {
+      const moved: TileItem = { ...host };
+      host.key = `group:${host.key}`;
+      host.areaSqft = 0;
+      host.aspect = 1.15;
+      host.children = [moved];
+    }
+    host.children.push(item);
+    host.minFt = Math.max(host.minFt ?? 0, item.minFt ?? 0);
+    items.splice(items.indexOf(item), 1);
   }
-  return { depthFt, columns };
+  return items;
 }
 
-/** Interior width shared by a column's rooms, once its partitions are paid for. */
-function columnWidth(column: RoomSpec[], depthFt: number): number {
-  return area(column) / Math.max(1, depthFt - column.length * WALL_FT);
-}
-
-function area(specs: RoomSpec[]): number {
-  return specs.reduce((sum, s) => sum + s.areaSqft, 0);
+/** Split a storey into two near-equal halves, largest rooms first. */
+function halve(specs: RoomSpec[]): RoomSpec[][] {
+  if (specs.length < 2) return [specs];
+  const sorted = [...specs].sort((a, b) => b.areaSqft - a.areaSqft || a.label.localeCompare(b.label));
+  const total = sorted.reduce((sum, spec) => sum + spec.areaSqft, 0);
+  const front: RoomSpec[] = [];
+  let running = 0;
+  for (const spec of sorted) {
+    if (running < total / 2 || front.length === 0) {
+      front.push(spec);
+      running += spec.areaSqft;
+    }
+  }
+  const back = sorted.filter((spec) => !front.includes(spec));
+  return back.length > 0 ? [front, back] : [sorted];
 }
 
 /**
- * Pack rooms into bands of uniform depth, separated by real hallways.
+ * Lay out one storey by tiling the buildable rectangle.
  *
- * The circulation between bands used to be a bare gap that no room object
- * described: the plan claimed 1,693 sqft while standing on a 2,750 sqft
- * footprint, and every downstream measure had to guess which of the two it
- * meant. Each gap is now the hallway it always was — drawn, priced, floored
- * and heated like the rest of the house.
+ * Depth is computed from the programme rather than discovered afterwards, so
+ * a plan is as deep as its rooms need and no deeper. The old packer worked the
+ * other way round — stack bands, then find out you had built a hundred-foot
+ * house on an eighty-five-foot lot — and every attempt to claw that back cost
+ * a room its proportions.
  */
-function packLevel(
-  specs: RoomSpec[],
-  level: number,
-  maxRowWidthFt: number,
-  startKey: number,
-  depthTolerance: number,
-): Room[] {
+function packLevel(specs: RoomSpec[], level: number, maxRowWidthFt: number, startKey: number): Room[] {
   const rooms: Room[] = [];
   let key = startKey;
-  const bands = assignBands(specs, maxRowWidthFt, depthTolerance).map(clusterKinds);
-  const laid: { topFt: number; depthFt: number; widthFt: number; roofedFt: number }[] = [];
-  let z = 0;
+  if (specs.length === 0) return rooms;
 
-  for (const band of bands) {
-    const { depthFt, columns } = bandColumns(band);
-    const bandDepth = round1(depthFt);
-    let x = 0;
-    let roofed = 0;
-    for (const column of columns) {
-      const width = round1(columnWidth(column, depthFt));
-      let cz = z;
-      column.forEach((spec, i) => {
-        // The last room in a column takes whatever depth is left, so rounding
-        // can never open a seam between a column and the band behind it.
-        const last = i === column.length - 1;
-        const depth = last
-          ? round1(z + bandDepth - cz - WALL_FT)
-          : round1(spec.areaSqft / width);
-        rooms.push({
-          key: `r${key++}`,
-          kind: spec.kind,
-          label: spec.label,
-          level,
-          // Half a partition inside each face of the module: the rectangle is
-          // the room, not the room plus its share of the walls.
-          rect: [round1(x + WALL_FT / 2), round1(cz + WALL_FT / 2), width, Math.max(round1(depth), 1)],
-        });
-        cz = round1(cz + depth + WALL_FT);
-      });
-      x = round1(x + width + WALL_FT);
-      // A porch is not part of the house's interior, so the hallway behind it
-      // must not run out over it — that drew circulation across open decking
-      // and left the roof two stray wings chasing it.
-      if (column.some((spec) => spec.kind !== "outdoor")) roofed = x;
-    }
-    laid.push({ topFt: z, depthFt: bandDepth, widthFt: x, roofedFt: roofed });
-    // Bands not separated by a corridor sit back to back, a wall apart.
-    z = round1(z + bandDepth + (hallwayAfter(laid.length - 1, bands.length) ? HALL_WIDTH_FT : WALL_FT));
-  }
+  // Outdoor rooms are not tiled with the interior. A porch belongs across the
+  // front of the house and a covered terrace across the back; tiled in with
+  // everything else the porch came out 4.7ft x 27.3ft, standing on its end
+  // beside the living room.
+  const isPorch = (spec: RoomSpec) => spec.kind === "outdoor" && /porch/i.test(spec.label);
+  const porches = specs.filter(isPorch);
+  const terraces = specs.filter((spec) => spec.kind === "outdoor" && !isPorch(spec));
+  // A garage is a mass, not a room to be tiled: two cars park side by side or
+  // they do not park, and a tiler asked to fill a rectangle will return one
+  // 20ft wide and 26ft deep. It stands at the front with the porch beside it,
+  // at the size it actually is — a garage-forward house with a porch off the
+  // entry, the commonest plan there is.
+  const garages = specs.filter((spec) => spec.kind === "garage");
+  const indoor = specs.filter((spec) => spec.kind !== "outdoor" && spec.kind !== "garage");
 
-  // One hallway per gap, as wide as the wider of the two bands it serves, so
-  // the storey reads as one connected floor rather than a stack of islands.
-  for (let i = 0; i + 1 < laid.length; i++) {
-    if (!hallwayAfter(i, laid.length)) continue;
-    const width = Math.max(laid[i].roofedFt, laid[i + 1].roofedFt);
-    if (width <= 0) continue;
+  const width = Math.max(MIN_ROOM_FT * 2, maxRowWidthFt);
+  const emit = (spec: RoomSpec, rect: [number, number, number, number]) => {
     rooms.push({
       key: `r${key++}`,
-      kind: "hallway",
-      label: level === 0 ? (i === 0 ? "Hall" : `Hall ${i / 2 + 1}`) : `Hall L${level + 1}${i === 0 ? "" : ` ${i / 2 + 1}`}`,
+      kind: spec.kind,
+      label: spec.label,
       level,
+      // Half a partition inside each face: the rectangle is the room, not the
+      // room plus its share of the walls.
       rect: [
-        round1(WALL_FT / 2),
-        round1(laid[i].topFt + laid[i].depthFt + WALL_FT / 2),
-        round1(width - WALL_FT),
-        round1(HALL_WIDTH_FT - WALL_FT),
+        round1(rect[0] + WALL_FT / 2),
+        round1(rect[1] + WALL_FT / 2),
+        Math.max(round1(rect[2] - WALL_FT), 1),
+        Math.max(round1(rect[3] - WALL_FT), 1),
       ],
     });
+  };
+
+  /** An outdoor room as a strip across a face, at the proportions it asked for. */
+  const strip = (group: RoomSpec[], z: number): number => {
+    if (group.length === 0) return 0;
+    const area = group.reduce((sum, spec) => sum + spec.areaSqft, 0);
+    const aspect = group[0].aspect;
+    // The strip takes the shape it asked for, and only spreads thinner if
+    // that shape will not fit across the face. Clamping it the other way
+    // round is what laid a covered terrace out 34ft x 3.5ft.
+    const depth = Math.max(Math.sqrt(area / aspect), area / width);
+    let x = 0;
+    for (const spec of group) {
+      const w = spec.areaSqft / depth;
+      emit(spec, [x, z, w, depth]);
+      x = round1(x + w);
+    }
+    return round1(depth);
+  };
+
+  let z = 0;
+  let frontDepth = 0;
+  let frontX = 0;
+  for (const spec of [...porches, ...garages]) {
+    // Each keeps the shape it asked for. If what is left of the width cannot
+    // take it, it goes on the next line rather than being squeezed into the
+    // gap — squeezing turned a porch into a 3.5ft x 29.5ft passage.
+    const natural = Math.sqrt(spec.areaSqft / spec.aspect);
+    const wanted = spec.areaSqft / natural;
+    if (frontX > 0 && wanted > width - frontX) {
+      z = round1(z + frontDepth);
+      frontX = 0;
+      frontDepth = 0;
+    }
+    const w = Math.min(wanted, width);
+    emit(spec, [frontX, z, w, spec.areaSqft / w]);
+    frontX = round1(frontX + w);
+    frontDepth = Math.max(frontDepth, spec.areaSqft / w);
   }
+  z = round1(z + frontDepth);
+
+  // Every area below is the room PLUS its share of the walls, because that is
+  // what the tiler places; measuring the rectangle from bare room areas and
+  // then filling it with walled ones overflows it and distorts everything.
+  const walled = (group: RoomSpec[]) =>
+    tileItems(group).reduce((sum, item) => sum + itemArea(item), 0);
+  const roomArea = walled(indoor);
+  const split = [ZONE_FRONT, ZONE_BACK]
+    .map((zone) => indoor.filter((spec) => zoneOf(spec) === zone))
+    .filter((group) => group.length > 0);
+  // A day side and a night side is a ground-floor idea. Upstairs everything is
+  // private, so one of the two zones ends up holding a single small room and
+  // gets a band of the storey's depth in proportion to it: an office alone in
+  // the front zone of an upper floor came out 40.8ft x 2.8ft. A zone that
+  // small is not a zone — the storey is simply one.
+  const smallest = split.length > 1 ? Math.min(...split.map(walled)) : 0;
+  const lopsided = split.length > 1 && smallest / roomArea < 0.2;
+  // Every storey needs circulation — an upper floor has a landing and a hall
+  // just as a ground floor does. When the day/night split does not apply, or
+  // leaves one side too small to be a zone of its own, the storey is halved
+  // by area instead so there is still a corridor through it.
+  const zones =
+    roomArea / width < MIN_ZONE_DEPTH_FT * 2
+      ? [indoor]
+      : split.length > 1 && !lopsided
+        ? split
+        : halve(indoor);
+  // Circulation exists on every storey, including one laid as a single zone —
+  // computing it only for split storeys emitted a landing of zero depth.
+  const hallDepth = Math.max(HALL_WIDTH_FT, (roomArea * HALL_FRACTION) / width);
+  const bodyDepth = roomArea / width;
+
+  for (const [index, zone] of zones.entries()) {
+    const depth = (bodyDepth * walled(zone)) / roomArea;
+    for (const placed of tile(tileItems(zone), [0, z, width, depth])) {
+      const spec = zone.find((candidate) => candidate.label === placed.key);
+      if (spec) emit(spec, placed.rect);
+    }
+    z = round1(z + depth);
+    // A storey too shallow to halve still needs its landing; it goes across
+    // the end rather than through the middle.
+    if (index + 1 < zones.length || zones.length === 1) {
+      rooms.push({
+        key: `r${key++}`,
+        kind: "hallway",
+        label: level === 0 ? "Hall" : `Hall L${level + 1}`,
+        level,
+        rect: [
+          round1(WALL_FT / 2),
+          round1(z + WALL_FT / 2),
+          round1(width - WALL_FT),
+          round1(hallDepth - WALL_FT),
+        ],
+      });
+      z = round1(z + hallDepth);
+    }
+  }
+
+  strip(terraces, z);
   return rooms;
 }
 
@@ -434,18 +522,67 @@ function addOpenings(model: ParametricModel): void {
  * Shared by initial generation and by the revision engine, so a revised
  * program flows through exactly the same layout rules.
  */
-export function assembleModel(
-  levelSpecs: RoomSpec[][],
-  maxRowWidthFt: number,
-  depthTolerance: number = BAND_DEPTH_TOLERANCE,
-): ParametricModel {
-  const rooms: Room[] = [];
-  let startKey = 0;
-  levelSpecs.forEach((specs, level) => {
-    const packed = packLevel(specs, level, maxRowWidthFt, startKey, depthTolerance);
-    startKey += packed.length;
-    rooms.push(...packed);
-  });
+export function assembleModel(levelSpecs: RoomSpec[][], maxRowWidthFt: number): ParametricModel {
+  // The footprint is chosen, not inherited. Taking the full width the lot
+  // allows is what put a bedroom at 30.6ft x 4.9ft on a 75ft lot: a wide,
+  // shallow storey gives every full-depth room the storey's depth, and on a
+  // shallow storey that is a corridor. Narrower storeys are packed too and
+  // scored the same way the tiler scores its own rows, so the proportions of
+  // the house and the proportions of its rooms are decided by one standard.
+  const targets = new Map<string, { aspect: number; minFt: number }>();
+  for (const specs of levelSpecs) {
+    for (const spec of specs) {
+      targets.set(spec.label, {
+        aspect: spec.aspect,
+        minFt: spec.minFt ?? (/powder/i.test(spec.label) ? 3 : (MIN_WIDTH[spec.kind] ?? 0)),
+      });
+    }
+  }
+  const packAll = (width: number): Room[] => {
+    const out: Room[] = [];
+    let key = 0;
+    levelSpecs.forEach((specs, level) => {
+      const packed = packLevel(specs, level, width, key);
+      key += packed.length;
+      out.push(...packed);
+    });
+    return out;
+  };
+  const cost = (packed: Room[]): number => {
+    let total = 0;
+    for (const room of packed) {
+      const want = targets.get(room.label);
+      if (!want) continue;
+      const [, , w, d] = room.rect;
+      const narrowest = Math.min(w, d);
+      const penalty = narrowest >= want.minFt ? 1 : 10 * (want.minFt / Math.max(narrowest, 0.1));
+      const off = distortion(w / d, want.aspect) * penalty;
+      total += off * off;
+    }
+    return total;
+  };
+  // A storey narrower than its widest room cannot hold it, whatever that does
+  // to the score. This is a bound rather than a cost because the search is a
+  // sum: on a 50ft lot it bought slightly squarer bedrooms with a two-car
+  // garage 17.9ft across, which is a garage you cannot park in.
+  const floorWidth = Math.max(
+    MIN_ROOM_FT * 2,
+    ...levelSpecs.flatMap((specs) => specs.map((spec) => (targets.get(spec.label)?.minFt ?? 0) + WALL_FT)),
+  );
+  // Down to two thirds of the frontage. Below that the house stops being the
+  // shape the lot wants and starts being a tower on a wide lot.
+  let rooms = packAll(maxRowWidthFt);
+  let best = cost(rooms);
+  for (let step = 1; step <= 6; step++) {
+    const width = maxRowWidthFt * (1 - step * 0.055);
+    if (width < floorWidth) break;
+    const candidate = packAll(width);
+    const score = cost(candidate);
+    if (score < best) {
+      best = score;
+      rooms = candidate;
+    }
+  }
   const model: ParametricModel = {
     schemaVersion: 1,
     levels: levelSpecs.length,
@@ -512,14 +649,23 @@ export function generateConcepts(
   return orderedVariants(brief.style).map((variant, vi) => {
     const buildFor = (targetSqft: number | undefined): ParametricModel => {
       const specs = programRooms({ ...brief.program, targetSqft }, brief.style);
-      let maxRow = Math.max(24, lot * variant.rowWidthFactor);
+      // A house is never narrower than thirty feet across, however narrow the
+      // lot: a two-car garage is twenty-one of them, and the compact variant's
+      // 55% of a 50ft frontage left a 27.5ft storey with a galley kitchen
+      // 10ft x 20ft and a closet three feet across. Real narrow-lot plans use
+      // the buildable width and go up, they do not get thinner.
+      let maxRow = Math.max(Math.min(lot, 30), lot * variant.rowWidthFactor);
 
       let levelSpecs: RoomSpec[][];
       if (variant.twoStory) {
         const publicSpecs = specs.filter((s) => s.public || s.kind === "garage" || s.kind === "laundry");
         const privateSpecs = specs.filter((s) => !publicSpecs.includes(s));
-        // keep one bath downstairs for accessibility
-        const downBathIdx = privateSpecs.findIndex((s) => s.kind === "bathroom");
+        // Keep one bath downstairs for accessibility — but never the ensuite.
+        // Taking the first bathroom it found took the primary bath, which left
+        // the walk-in closet upstairs with only a bedroom to pair with and
+        // turned it into a 24ft x 1.9ft strip. A suite is not a pool of
+        // bathrooms to draw from.
+        const downBathIdx = privateSpecs.findIndex((s) => s.kind === "bathroom" && !s.suite);
         if (downBathIdx >= 0) publicSpecs.push(...privateSpecs.splice(downBathIdx, 1));
         levelSpecs = [publicSpecs, privateSpecs];
       } else {
@@ -529,26 +675,14 @@ export function generateConcepts(
       // A narrow variant on a big program can pack deeper than the lot
       // allows; widen the rows (never past the buildable width) until the
       // plan fits the depth budget too. Deterministic: fixed growth, bounded.
-      let tolerance = BAND_DEPTH_TOLERANCE;
-      let built = assembleModel(levelSpecs.map((l) => [...l]), maxRow, tolerance);
+      let built = assembleModel(levelSpecs.map((l) => [...l]), maxRow);
       if (depthBudget) {
         let guard = 0;
         while (guard++ < 8 && maxRow < lot && planDepthFt(built) > depthBudget) {
           maxRow = Math.min(lot, maxRow * 1.2);
-          built = assembleModel(levelSpecs.map((l) => [...l]), maxRow, tolerance);
+          built = assembleModel(levelSpecs.map((l) => [...l]), maxRow);
         }
-        // Width exhausted and still too deep: let rooms of unlike depth share
-        // a band after all. Grouping by depth is what keeps proportions, and
-        // it costs plan depth — every band it refuses to merge is another
-        // band. On a lot that cannot take the depth, a squarer bathroom beats
-        // a rear setback violation, so the guarantee yields here rather than
-        // the site plan. Ordinary lots never reach this.
-        for (const relaxed of [1.6, 2.2, Infinity]) {
-          if (planDepthFt(built) <= depthBudget) break;
-          tolerance = relaxed;
-          built = assembleModel(levelSpecs.map((l) => [...l]), maxRow, tolerance);
-        }
-        // Still too deep: deepen the living rooms
+        // Width exhausted and still too deep: deepen the living rooms
         // (lower aspect → narrower rooms → fuller rows), the way narrow-lot
         // homes are actually proportioned. Garages and outdoor spaces keep
         // their natural shape — a square garage helps nobody.
@@ -561,7 +695,7 @@ export function generateConcepts(
                 : { ...spec, aspect: Math.max(0.6, spec.aspect * scale) },
             ),
           );
-          built = assembleModel(deepened, maxRow, tolerance);
+          built = assembleModel(deepened, maxRow);
         }
       }
       return built;
