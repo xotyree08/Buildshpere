@@ -124,11 +124,17 @@ test("3D viewer renders a non-black scene and walk mode responds", async ({ page
   await page.waitForTimeout(2_500);
   const inside = await page.screenshot();
   expect(Buffer.compare(orbit, inside)).not.toBe(0);
+  // Walking is asserted by the frame changing, and under a software renderer
+  // on a loaded CI box a frame is not guaranteed inside a fixed wait. Hold the
+  // key and poll until the view differs rather than betting on one timeout —
+  // the claim is "walking moves the camera", not "it moves within 300ms".
   await page.keyboard.down("KeyW");
-  await page.waitForTimeout(900);
+  let moved = inside;
+  for (let attempt = 0; attempt < 10 && Buffer.compare(inside, moved) === 0; attempt++) {
+    await page.waitForTimeout(600);
+    moved = await page.screenshot();
+  }
   await page.keyboard.up("KeyW");
-  await page.waitForTimeout(300);
-  const moved = await page.screenshot();
   expect(Buffer.compare(inside, moved)).not.toBe(0);
 });
 
