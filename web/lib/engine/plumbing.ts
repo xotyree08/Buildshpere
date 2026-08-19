@@ -7,6 +7,7 @@
  */
 
 import type { ParametricModel, Room } from "../types";
+import { sharedWall } from "./adjacency";
 
 export type FixtureType =
   | "kitchen_sink"
@@ -131,40 +132,18 @@ export function buildPlumbingPlan(model: ParametricModel): PlumbingPlan {
   const plumbed = rooms.map((r) => r.room);
   for (let i = 0; i < plumbed.length; i++) {
     for (let j = i + 1; j < plumbed.length; j++) {
-      const a = plumbed[i].rect;
-      const b = plumbed[j].rect;
       if (plumbed[i].level !== plumbed[j].level) continue;
-      // Vertical shared edge.
-      const eps = 0.3;
-      if (Math.abs(a[0] + a[2] - b[0]) < eps || Math.abs(b[0] + b[2] - a[0]) < eps) {
-        const zLo = Math.max(a[1], b[1]);
-        const zHi = Math.min(a[1] + a[3], b[1] + b[3]);
-        if (zHi - zLo > 3) {
-          const wallX = Math.abs(a[0] + a[2] - b[0]) < eps ? a[0] + a[2] : b[0] + b[2];
-          wetWalls.push({
-            x1: wallX,
-            z1: zLo,
-            x2: wallX,
-            z2: zHi,
-            fixtures: rooms[i].fixtures.length + rooms[j].fixtures.length,
-          });
-        }
-      }
-      // Horizontal shared edge.
-      if (Math.abs(a[1] + a[3] - b[1]) < eps || Math.abs(b[1] + b[3] - a[1]) < eps) {
-        const xLo = Math.max(a[0], b[0]);
-        const xHi = Math.min(a[0] + a[2], b[0] + b[2]);
-        if (xHi - xLo > 3) {
-          const wallZ = Math.abs(a[1] + a[3] - b[1]) < eps ? a[1] + a[3] : b[1] + b[3];
-          wetWalls.push({
-            x1: xLo,
-            z1: wallZ,
-            x2: xHi,
-            z2: wallZ,
-            fixtures: rooms[i].fixtures.length + rooms[j].fixtures.length,
-          });
-        }
-      }
+      // Back-to-back or stacked plumbing rooms share the wall between them —
+      // that wall IS the wet wall, so the run is measured along it and drawn
+      // on its centreline, not on one room's inside face.
+      const wall = sharedWall(plumbed[i].rect, plumbed[j].rect);
+      if (!wall || wall.to - wall.from <= 3) continue;
+      const fixtures = rooms[i].fixtures.length + rooms[j].fixtures.length;
+      wetWalls.push(
+        wall.axis === "x"
+          ? { x1: wall.at, z1: wall.from, x2: wall.at, z2: wall.to, fixtures }
+          : { x1: wall.from, z1: wall.at, x2: wall.to, z2: wall.at, fixtures },
+      );
     }
   }
 

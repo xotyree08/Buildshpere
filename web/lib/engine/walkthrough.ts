@@ -8,6 +8,7 @@
  */
 
 import type { Opening, ParametricModel, Room, RoomKind } from "../types";
+import { roomsAdjacent } from "./adjacency";
 
 /** Visit order by kind; lower first. Hallways are circulation, not stops. */
 const TOUR_ORDER: Record<RoomKind, number> = {
@@ -38,18 +39,7 @@ export interface TourStop {
   adjacent: string[];
 }
 
-function touches(a: Room, b: Room): boolean {
-  const [ax, ay, aw, ad] = a.rect;
-  const [bx, by, bw, bd] = b.rect;
-  const eps = 0.2;
-  const xOverlap = Math.min(ax + aw, bx + bw) - Math.max(ax, bx) > eps;
-  const yOverlap = Math.min(ay + ad, by + bd) - Math.max(ay, by) > eps;
-  const shareVerticalEdge =
-    (Math.abs(ax + aw - bx) < eps || Math.abs(bx + bw - ax) < eps) && yOverlap;
-  const shareHorizontalEdge =
-    (Math.abs(ay + ad - by) < eps || Math.abs(by + bd - ay) < eps) && xOverlap;
-  return shareVerticalEdge || shareHorizontalEdge;
-}
+
 
 export function buildTour(model: ParametricModel): TourStop[] {
   const stops = model.rooms.filter((r) => r.kind !== "hallway");
@@ -73,7 +63,7 @@ export function buildTour(model: ParametricModel): TourStop[] {
     windows: model.openings.filter((o) => o.roomKey === room.key && o.kind === "window"),
     doors: model.openings.filter((o) => o.roomKey === room.key && o.kind !== "window"),
     adjacent: model.rooms
-      .filter((other) => other.key !== room.key && other.level === room.level && touches(room, other))
+      .filter((other) => other.key !== room.key && other.level === room.level && roomsAdjacent(room, other))
       .map((other) => other.label),
   }));
 }

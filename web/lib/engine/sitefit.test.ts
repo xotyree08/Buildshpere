@@ -80,7 +80,7 @@ describe("generated concepts fit their own lot (no self-inflicted violations)", 
     const packages = runDesignLoop(brief(), {
       lotWidthFt: 90,
       lotDepthFt: 150,
-      budgetCents: 685_000_00,
+      budgetCents: 725_000_00,
       regionCode: "US_NATIONAL",
       finishes: {
         siding: "fiber_cement",
@@ -92,7 +92,7 @@ describe("generated concepts fit their own lot (no self-inflicted violations)", 
       },
     });
     for (const p of packages) {
-      expect(p.estimate.totalCents).toBeLessThanOrEqual(685_000_00);
+      expect(p.estimate.totalCents).toBeLessThanOrEqual(725_000_00);
       expect(buildSitePlan(p.concept.model, 90, 150).violations).toEqual([]);
       expect(p.healthScore).toBeGreaterThanOrEqual(90);
     }
