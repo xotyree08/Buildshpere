@@ -13,6 +13,7 @@ jobs:
   web:
     name: Web (typecheck, tests, build)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: web
@@ -31,6 +32,10 @@ jobs:
   e2e:
     name: End-to-end (Playwright)
     runs-on: ubuntu-latest
+    # The suite runs in about a minute; the browser download in front of it is
+    # the part that hangs. Without a cap a stuck mirror burns the six-hour
+    # default before anyone finds out the job was never going to finish.
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: web
@@ -42,13 +47,17 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
+      # --with-deps pulls OS packages through apt as well as the browser, and
+      # either half can stall on a bad mirror. Fail the step rather than the job.
       - run: npx playwright install --with-deps chromium
+        timeout-minutes: 10
       - run: npm run build
       - run: npm run e2e
 
   mobile:
     name: Mobile (analyze, tests)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: mobile
