@@ -115,6 +115,10 @@ test("landing folio renders the engine drawings without horizontal overflow on a
 });
 
 test("3D viewer renders a non-black scene and walk mode responds", async ({ page }) => {
+  // WebGL under a software renderer is slow enough that this one test needs
+  // more than the suite default: it compiles shaders, renders a scene twice
+  // and then waits for the camera to move, all without a GPU.
+  test.setTimeout(150_000);
   await generateProject(page);
   await page.getByRole("button", { name: "3D viewer" }).first().click();
   await page.waitForSelector("canvas", { timeout: 20_000 });
@@ -124,18 +128,22 @@ test("3D viewer renders a non-black scene and walk mode responds", async ({ page
   await page.waitForTimeout(2_500);
   const inside = await page.screenshot();
   expect(Buffer.compare(orbit, inside)).not.toBe(0);
-  // Walking is asserted by the frame changing, and under a software renderer
-  // on a loaded CI box a frame is not guaranteed inside a fixed wait. Hold the
-  // key and poll until the view differs rather than betting on one timeout —
-  // the claim is "walking moves the camera", not "it moves within 300ms".
+  // Walking is asserted by the view changing, and under a software renderer on
+  // a loaded CI box a frame is not guaranteed inside a fixed wait. Poll — but
+  // poll the CANVAS, not the page: a full-page screenshot waits on fonts and
+  // costs seconds under SwiftShader, so ten of them spent the whole test
+  // budget without ever asking the question. The canvas is the only thing
+  // walking changes anyway.
+  const canvas = page.locator("canvas").first();
+  const before = await canvas.screenshot();
   await page.keyboard.down("KeyW");
-  let moved = inside;
-  for (let attempt = 0; attempt < 10 && Buffer.compare(inside, moved) === 0; attempt++) {
-    await page.waitForTimeout(600);
-    moved = await page.screenshot();
+  let after = before;
+  for (let attempt = 0; attempt < 12 && Buffer.compare(before, after) === 0; attempt++) {
+    await page.waitForTimeout(500);
+    after = await canvas.screenshot();
   }
   await page.keyboard.up("KeyW");
-  expect(Buffer.compare(inside, moved)).not.toBe(0);
+  expect(Buffer.compare(before, after)).not.toBe(0);
 });
 
 test("interiors: schemes restyle the rooms and the stylist falls back honestly", async ({ page }) => {
