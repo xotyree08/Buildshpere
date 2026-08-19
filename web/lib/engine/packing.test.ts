@@ -42,22 +42,24 @@ function everyConcept(): { style: HomeStyle; model: ParametricModel; sqft: numbe
   return out;
 }
 
-/** Bands are what the modelled hallways separate. */
+/**
+ * A band is a run of depth that some room occupies all the way across. The
+ * gaps between bands are what nothing crosses — a corridor, or just the wall
+ * where two bands sit back to back. Splitting on hallways alone would miss
+ * the second kind and read two bands as one.
+ */
 function bandsOf(model: ParametricModel, l: number): { z0: number; z1: number }[] {
   const rooms = level(model, l);
   if (rooms.length === 0) return [];
-  const halls = rooms
-    .filter((r) => r.kind === "hallway")
+  const spans = rooms
     .map((r) => [r.rect[1], r.rect[1] + r.rect[3]] as [number, number])
     .sort((a, b) => a[0] - b[0]);
-  const end = Math.max(...rooms.map((r) => r.rect[1] + r.rect[3]));
   const bands: { z0: number; z1: number }[] = [];
-  let cursor = 0;
-  for (const [hz0, hz1] of halls) {
-    if (hz0 > cursor + 1e-6) bands.push({ z0: cursor, z1: hz0 });
-    cursor = Math.max(cursor, hz1);
+  for (const [z0, z1] of spans) {
+    const last = bands[bands.length - 1];
+    if (last && z0 <= last.z1 + 1e-6) last.z1 = Math.max(last.z1, z1);
+    else bands.push({ z0, z1 });
   }
-  if (end > cursor + 1e-6) bands.push({ z0: cursor, z1: end });
   return bands;
 }
 
@@ -185,6 +187,61 @@ describe("band packing: a footprint a builder would recognize", () => {
       for (const c of generateConcepts(brief({ targetSqft: target }), 90)) {
         expect(Math.abs(c.sqft - target) / target).toBeLessThan(0.08);
       }
+    }
+  });
+
+  it("rooms come out the shape they asked for", () => {
+    // A band gives every room in it one depth, and a room forced to a depth it
+    // did not ask for pays in width — the distortion goes as the SQUARE of the
+    // ratio. Packing in program order put a 6.5ft bathroom in an 11.4ft band
+    // and returned 5.3 x 11.4, a corridor with a toilet in it. Grouping rooms
+    // by the depth they want holds every room close to its own proportions.
+    const wanted = new Map<string, number>([
+      ["Living Room", 1.3], ["Kitchen", 1.4], ["Dining Room", 1.2],
+      ["Laundry", 1.0], ["Mechanical / Storage", 1.0], ["Primary Bedroom", 1.2],
+      ["Bedroom 2", 1.2], ["Bedroom 3", 1.2], ["Primary Bath", 1.4],
+      ["Bath 2", 1.4], ["2-Car Garage", 1.6], ["Front Porch", 2.5],
+    ]);
+    for (const { model } of everyConcept()) {
+      for (const room of model.rooms) {
+        const want = wanted.get(room.label);
+        if (want === undefined) continue;
+        const got = room.rect[2] / room.rect[3];
+        const off = Math.max(got / want, want / got);
+        expect(off, `${room.label} ${room.rect[2]}x${room.rect[3]}`).toBeLessThan(1.6);
+      }
+      // And no room is squeezed to a sliver in either direction: a closet came
+      // out 21.1 x 2.3 when it shared a column with a primary bedroom.
+      for (const room of model.rooms) {
+        if (room.kind === "hallway") continue;
+        expect(Math.min(room.rect[2], room.rect[3])).toBeGreaterThanOrEqual(4);
+      }
+    }
+  });
+
+  it("a front porch faces the front, wide and shallow", () => {
+    // Sorted purely by depth the porch sank to the back of the plan and came
+    // out 6.6 x 18.2 — a porch turned inside out, behind the garage.
+    for (const { model } of everyConcept()) {
+      const porch = model.rooms.find((r) => /porch/i.test(r.label));
+      if (!porch) continue;
+      expect(porch.rect[2]).toBeGreaterThan(porch.rect[3]);
+      const front = Math.min(...level(model, porch.level).map((r) => r.rect[1]));
+      expect(porch.rect[1]).toBeCloseTo(front, 1);
+    }
+  });
+
+  it("circulation is a tenth of the home, not a quarter", () => {
+    // A corridor is double-loaded — it serves the rooms on both sides. One at
+    // every band boundary instead gave the middle bands a corridor each side
+    // and pushed circulation to a quarter of the house; real homes run 10-15%.
+    for (const { model } of everyConcept()) {
+      const halls = model.rooms.filter((r) => r.kind === "hallway").reduce((s, r) => s + areaOf(r), 0);
+      const home = model.rooms
+        .filter((r) => r.kind !== "garage" && r.kind !== "outdoor")
+        .reduce((s, r) => s + areaOf(r), 0);
+      expect(halls / home).toBeLessThan(0.2);
+      expect(halls).toBeGreaterThan(0);
     }
   });
 
