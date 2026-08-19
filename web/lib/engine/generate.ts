@@ -143,6 +143,15 @@ function programRooms(p: ProgramRequirements, style?: HomeStyle): RoomSpec[] {
  * move a single grid step in any direction.
  */
 
+/**
+ * Shallowest a zone may be and still hold rooms rather than strips.
+ *
+ * Halving a storey guarantees it a corridor, but half of a shallow storey is
+ * a seven-foot band, and a primary bedroom in one came out 33.9ft x 6.9ft.
+ * A storey too shallow to halve is left whole, with its landing across the end.
+ */
+const MIN_ZONE_DEPTH_FT = 12;
+
 /** Circulation as a share of the storey — real homes run 10-15%. */
 const HALL_FRACTION = 0.11;
 
@@ -178,7 +187,7 @@ const MIN_WIDTH: Partial<Record<RoomKind, number>> = {
   theater: 10,
   bathroom: 5,
   laundry: 5,
-  closet: 4,
+  closet: 4.5,
 };
 
 /**
@@ -189,6 +198,25 @@ const MIN_WIDTH: Partial<Record<RoomKind, number>> = {
 function tileItems(specs: RoomSpec[]): TileItem[] {
   const items: TileItem[] = [];
   const suites = new Map<string, TileItem>();
+  // A room much smaller than the rest of its storey has nowhere good to go: a
+  // 60sqft bathroom placed among 200sqft rooms takes a full-depth strip and
+  // comes out 3.6ft wide. Pairing the small ones gives them a cell to share,
+  // which is both what fixes the shape and where a plan puts them anyway.
+  const loose = specs.filter((spec) => !spec.suite);
+  const mean = loose.reduce((sum, spec) => sum + spec.areaSqft, 0) / Math.max(1, loose.length);
+  const small = loose
+    .filter((spec) => spec.areaSqft < mean * 0.75)
+    .sort((a, b) => b.areaSqft - a.areaSqft || a.label.localeCompare(b.label));
+  const paired = new Map<string, string>();
+  for (let i = 0; i + 1 < small.length; i += 2) {
+    paired.set(small[i].label, `pair${i}`);
+    paired.set(small[i + 1].label, `pair${i}`);
+  }
+  // An odd one out joins the last pair rather than standing alone, which is
+  // the situation this exists to prevent.
+  if (small.length > 2 && small.length % 2 === 1) {
+    paired.set(small[small.length - 1].label, paired.get(small[small.length - 2].label)!);
+  }
   for (const spec of specs) {
     // Tile the room PLUS its share of the walls. The rectangle drawn is the
     // interior, half a partition inside each face, so a cell sized to the
@@ -206,19 +234,41 @@ function tileItems(specs: RoomSpec[]): TileItem[] {
       // one bathroom that is genuinely narrow.
       minFt: (/powder/i.test(spec.label) ? 3 : (MIN_WIDTH[spec.kind] ?? 0)) + WALL_FT,
     };
-    if (!spec.suite) {
+    const groupKey = spec.suite ?? paired.get(spec.label);
+    if (!groupKey) {
       items.push(leaf);
       continue;
     }
-    let group = suites.get(spec.suite);
+    let group = suites.get(groupKey);
     if (!group) {
-      group = { key: `suite:${spec.suite}`, areaSqft: 0, aspect: 1.15, children: [] };
-      suites.set(spec.suite, group);
+      group = { key: `group:${groupKey}`, areaSqft: 0, aspect: 1.15, children: [], minFt: 0 };
+      suites.set(groupKey, group);
       items.push(group);
     }
     group.children!.push(leaf);
+    // A group is only as placeable as its most demanding room. Without this
+    // the tiler happily gave a primary suite a cell seven feet deep and then
+    // discovered, one level down, that a bedroom does not fit in seven feet.
+    group.minFt = Math.max(group.minFt ?? 0, leaf.minFt ?? 0);
   }
   return items;
+}
+
+/** Split a storey into two near-equal halves, largest rooms first. */
+function halve(specs: RoomSpec[]): RoomSpec[][] {
+  if (specs.length < 2) return [specs];
+  const sorted = [...specs].sort((a, b) => b.areaSqft - a.areaSqft || a.label.localeCompare(b.label));
+  const total = sorted.reduce((sum, spec) => sum + spec.areaSqft, 0);
+  const front: RoomSpec[] = [];
+  let running = 0;
+  for (const spec of sorted) {
+    if (running < total / 2 || front.length === 0) {
+      front.push(spec);
+      running += spec.areaSqft;
+    }
+  }
+  const back = sorted.filter((spec) => !front.includes(spec));
+  return back.length > 0 ? [front, back] : [sorted];
 }
 
 /**
@@ -321,9 +371,21 @@ function packLevel(specs: RoomSpec[], level: number, maxRowWidthFt: number, star
   // gets a band of the storey's depth in proportion to it: an office alone in
   // the front zone of an upper floor came out 40.8ft x 2.8ft. A zone that
   // small is not a zone — the storey is simply one.
-  const smallest = Math.min(...split.map(walled));
-  const zones = split.length > 1 && smallest / roomArea < 0.2 ? [indoor] : split;
-  const hallDepth = zones.length > 1 ? Math.max(HALL_WIDTH_FT, (roomArea * HALL_FRACTION) / width) : 0;
+  const smallest = split.length > 1 ? Math.min(...split.map(walled)) : 0;
+  const lopsided = split.length > 1 && smallest / roomArea < 0.2;
+  // Every storey needs circulation — an upper floor has a landing and a hall
+  // just as a ground floor does. When the day/night split does not apply, or
+  // leaves one side too small to be a zone of its own, the storey is halved
+  // by area instead so there is still a corridor through it.
+  const zones =
+    roomArea / width < MIN_ZONE_DEPTH_FT * 2
+      ? [indoor]
+      : split.length > 1 && !lopsided
+        ? split
+        : halve(indoor);
+  // Circulation exists on every storey, including one laid as a single zone —
+  // computing it only for split storeys emitted a landing of zero depth.
+  const hallDepth = Math.max(HALL_WIDTH_FT, (roomArea * HALL_FRACTION) / width);
   const bodyDepth = roomArea / width;
 
   for (const [index, zone] of zones.entries()) {
@@ -333,7 +395,9 @@ function packLevel(specs: RoomSpec[], level: number, maxRowWidthFt: number, star
       if (spec) emit(spec, placed.rect);
     }
     z = round1(z + depth);
-    if (index + 1 < zones.length) {
+    // A storey too shallow to halve still needs its landing; it goes across
+    // the end rather than through the middle.
+    if (index + 1 < zones.length || zones.length === 1) {
       rooms.push({
         key: `r${key++}`,
         kind: "hallway",
