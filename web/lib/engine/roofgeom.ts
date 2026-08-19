@@ -271,7 +271,7 @@ export function decomposeWings(rooms: Room[]): [number, number, number, number][
     }
     open = next;
   }
-  return mergeRectangles(wings);
+  return absorbSlivers(mergeRectangles(wings));
 }
 
 /**
@@ -280,6 +280,49 @@ export function decomposeWings(rooms: Room[]): [number, number, number, number][
  * stops a plain shape arriving as a stack of pieces, each of which would
  * otherwise carry its own ridge.
  */
+/**
+ * Widest ribbon that is a rounding artefact rather than a wing.
+ *
+ * Room rectangles are rounded to a tenth of a foot, so two rooms meant to sit
+ * flush can end up a few inches out of line and the decomposition hands back a
+ * ribbon four inches wide running the whole depth of the house. It then roofs
+ * as a wing of its own, with its own ridge: the craftsman single-storey came
+ * out with five wings, one of them 0.4ft across.
+ */
+const SLIVER_FT = 1;
+
+/** Fold ribbons too narrow to be structure into the wing they run against. */
+function absorbSlivers(
+  rects: [number, number, number, number][],
+): [number, number, number, number][] {
+  const out = rects.map((r) => [...r] as [number, number, number, number]);
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (let i = 0; i < out.length && !changed; i++) {
+      if (Math.min(out[i][2], out[i][3]) >= SLIVER_FT) continue;
+      let best = -1;
+      let bestEdge = 0;
+      for (let j = 0; j < out.length; j++) {
+        if (j === i) continue;
+        const edge = sharedEdgeFt(out[i], out[j]);
+        if (edge > bestEdge) {
+          bestEdge = edge;
+          best = j;
+        }
+      }
+      if (best < 0) continue;
+      const [sx, sz, sw, sd] = out[i];
+      const [bx, bz, bw, bd] = out[best];
+      const x = Math.min(sx, bx);
+      const z = Math.min(sz, bz);
+      out[best] = [x, z, Math.max(sx + sw, bx + bw) - x, Math.max(sz + sd, bz + bd) - z];
+      out.splice(i, 1);
+      changed = true;
+    }
+  }
+  return out;
+}
+
 function mergeRectangles(
   rects: [number, number, number, number][],
 ): [number, number, number, number][] {

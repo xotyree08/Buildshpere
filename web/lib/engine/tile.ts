@@ -52,10 +52,22 @@ export function itemArea(item: TileItem): number {
     : item.areaSqft;
 }
 
-/** How far from its target a proportion is, as a factor of 1 or more. */
+/**
+ * How far from its target a proportion is, as a factor of 1 or more.
+ *
+ * Orientation-free: a room asking for 1.4:1 is equally well served by a cell
+ * 1.4 times as wide as it is deep or 1.4 times as deep as it is wide. Judging
+ * the two differently scored a perfectly ordinary galley kitchen — 9ft x 21ft,
+ * running front to back beside the living room — at 3.3 times off, and the
+ * layout search kept trading good plans away to avoid it. Where orientation
+ * really does matter it is imposed directly: a porch is laid across the front
+ * and a garage carries a minimum width, neither of them by aspect.
+ */
 export function distortion(aspect: number, target: number): number {
   if (!(aspect > 0) || !(target > 0)) return Infinity;
-  return Math.max(aspect / target, target / aspect);
+  const upright = Math.max(aspect / target, target / aspect);
+  const turned = Math.max(aspect * target, 1 / (aspect * target));
+  return Math.min(upright, turned);
 }
 
 /** The worst-proportioned room in a row laid `side` long at this thickness. */
@@ -86,7 +98,7 @@ function rowWorst(row: TileItem[], side: number, along: "x" | "z"): number {
  * slivers, and a row stops growing at the point where taking one more room
  * would make the worst room in it worse.
  */
-function squarify(items: TileItem[], rect: Rect, flip = false): Tile[] {
+function squarify(items: TileItem[], rect: Rect, flip = false, forceFirst = 0): Tile[] {
   const out: Tile[] = [];
   // Squarify depends on its input being sorted largest first: fed in
   // programme order it makes good cells for the first rooms and slivers for
@@ -96,6 +108,7 @@ function squarify(items: TileItem[], rect: Rect, flip = false): Tile[] {
     .sort((a, b) => itemArea(b) - itemArea(a) || a.key.localeCompare(b.key));
   let remaining = remainingAll;
   let [x, z, w, d] = rect;
+  let first = true;
 
   while (remaining.length > 0 && w > 0 && d > 0) {
     if (remaining.length === 1) {
@@ -127,13 +140,43 @@ function squarify(items: TileItem[], rect: Rect, flip = false): Tile[] {
     // A strip left behind that is too thin to hold a room is a fault — but so
     // is a row of slivers, and absorbing the rest to avoid the first used to
     // cause the second: a 4.4ft-deep powder room became a 2.8ft-wide one.
-    // Take the rest only when doing so is actually better.
+    //
+    // The comparison that decides between them has to count both faults. The
+    // first version of this weighed the row on its own against the merged row
+    // and never scored the sliver it was about to leave, so it always chose to
+    // leave one: a 60sqft hall bath came out 3.6ft x 16.3ft against a sleeping
+    // zone, because the row before it looked fine in isolation. Costing the
+    // leftover — and trying shorter rows, which leave a fatter strip — puts the
+    // bath at 7.4ft.
     const across = along === "x" ? d : w;
-    if (cut < remaining.length && across - spanOf(cut) / side < MIN_CELL_FT) {
-      const asIs = rowWorst(remaining.slice(0, cut), side, along);
-      const merged = rowWorst(remaining, side, along);
-      if (merged < asIs) cut = remaining.length;
+    const stripCost = (n: number) => {
+      const rest = remaining.slice(n);
+      if (rest.length === 0) return 1;
+      const leftover = across - spanOf(n) / side;
+      const floor = Math.min(...rest.map((item) => item.minFt ?? MIN_CELL_FT));
+      return leftover >= floor ? 1 : 10 * (floor / Math.max(leftover, 0.1));
+    };
+    if (stripCost(cut) > 1) {
+      let bestCut = cut;
+      let bestCost = Math.max(rowWorst(remaining.slice(0, cut), side, along), stripCost(cut));
+      for (let n = 1; n <= remaining.length; n++) {
+        if (n === cut) continue;
+        const cost = Math.max(rowWorst(remaining.slice(0, n), side, along), stripCost(n));
+        if (cost < bestCost) {
+          bestCost = cost;
+          bestCut = n;
+        }
+      }
+      cut = bestCut;
     }
+
+    // The greedy row stop is one guess at where the first row ends, and it is
+    // the guess the whole tiling hangs from: a kitchen came out 22ft x 9ft
+    // because the row above it took one room too many. Forcing the first row
+    // to each size in turn and scoring the finished tilings is what finds the
+    // arrangement the greedy rule cannot reach.
+    if (first && forceFirst > 0) cut = Math.min(forceFirst, remaining.length);
+    first = false;
 
     const row = remaining.slice(0, cut);
     remaining = remaining.slice(cut);
@@ -257,6 +300,9 @@ export function tile(items: TileItem[], rect: Rect): Tile[] {
     bisect(reversed, rect),
     bisect(reversed, rect, true),
   ];
+  for (let k = 1; k <= Math.min(4, items.length); k++) {
+    strategies.push(squarify(items, rect, false, k), squarify(items, rect, true, k));
+  }
   for (const candidate of strategies) {
     const score = scoreTiles(candidate, targets);
     if (score < bestScore) {

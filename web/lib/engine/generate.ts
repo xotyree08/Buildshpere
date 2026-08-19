@@ -22,7 +22,7 @@ import type {
 import { conceptName, styleInfo, type MassingKey } from "../catalog/styles";
 import { massingBias, PORCH_STYLES } from "./roof";
 import { WALL_FT } from "./adjacency";
-import { itemArea, tile, type TileItem } from "./tile";
+import { distortion, itemArea, tile, type TileItem } from "./tile";
 
 export interface RoomSpec {
   kind: RoomKind;
@@ -38,6 +38,13 @@ export interface RoomSpec {
    * so nothing can be placed between its rooms.
    */
   suite?: string;
+  /**
+   * Narrowest this room can be, when what has to fit in it is not implied by
+   * its kind. Two cars park side by side or they do not park: the width
+   * search shrank a two-car garage to 17.9ft across, and the plan read fine
+   * on every other measure while being a garage you cannot use.
+   */
+  minFt?: number;
 }
 
 const HALL_WIDTH_FT = 4;
@@ -117,6 +124,9 @@ function programRooms(p: ProgramRequirements, style?: HomeStyle): RoomSpec[] {
       label: `${p.garageBays}-Car Garage`,
       areaSqft: 264 * p.garageBays,
       aspect: p.garageBays >= 2 ? 1.6 : 0.8,
+      // Nine and a half feet per bay, plus a couple for the walls between the
+      // cars and the studs: a two-car garage is twenty-one feet across.
+      minFt: 9.5 * p.garageBays + 2,
       public: false,
     });
   // Porch styles carry their identity in the plan, not just the price.
@@ -232,7 +242,7 @@ function tileItems(specs: RoomSpec[]): TileItem[] {
       // inside each face of it, so the wall is added on — otherwise a ten-foot
       // minimum hands back a nine-and-a-half-foot room. A powder room is the
       // one bathroom that is genuinely narrow.
-      minFt: (/powder/i.test(spec.label) ? 3 : (MIN_WIDTH[spec.kind] ?? 0)) + WALL_FT,
+      minFt: (spec.minFt ?? (/powder/i.test(spec.label) ? 3 : (MIN_WIDTH[spec.kind] ?? 0))) + WALL_FT,
     };
     const groupKey = spec.suite ?? paired.get(spec.label);
     if (!groupKey) {
@@ -250,6 +260,58 @@ function tileItems(specs: RoomSpec[]): TileItem[] {
     // the tiler happily gave a primary suite a cell seven feet deep and then
     // discovered, one level down, that a bedroom does not fit in seven feet.
     group.minFt = Math.max(group.minFt ?? 0, leaf.minFt ?? 0);
+  }
+
+  // Pairing only helps a small room that has another small room to pair with.
+  // On the sleeping side of a wide single storey there is exactly one — the
+  // hall bath, with the laundry and the mechanical closet already claimed by
+  // the service group — so it stood alone among two-hundred-square-foot
+  // bedrooms and took a full-depth strip: 3.6ft x 16.3ft. A lone small room
+  // joins the smallest group on its storey instead. Next to the laundry is
+  // where a hall bath goes anyway, and the two then share a wet wall.
+  // A group of one is not a group — upstairs the laundry stays downstairs and
+  // the service group is left holding the mechanical closet alone, which is a
+  // leaf wearing a group's clothes and hides from the rule below.
+  for (const item of items) {
+    if (item.children && item.children.length === 1) {
+      const only = item.children[0];
+      item.key = only.key;
+      item.areaSqft = only.areaSqft;
+      item.aspect = only.aspect;
+      item.minFt = only.minFt;
+      delete item.children;
+    }
+  }
+  // Only service rooms are folded. A kitchen can be the smallest cell on the
+  // day side of a compact storey and it is still a room in its own right:
+  // folding one into a cell with the dining room turned it into 9.2ft x 21.6ft.
+  const foldable = new Set(
+    specs.filter((spec) => ["bathroom", "closet", "laundry"].includes(spec.kind)).map((spec) => spec.label),
+  );
+  const meanCell = items.reduce((sum, item) => sum + itemArea(item), 0) / Math.max(1, items.length);
+  for (const item of [...items]) {
+    if (item.children || !foldable.has(item.key) || itemArea(item) >= meanCell * 0.6) continue;
+    // Pair with the smallest room that is not already spoken for, and only
+    // fall back to an existing group if there is none. Sharing a cell with
+    // one other room is what stops a 55sqft closet taking the full depth of
+    // a sleeping zone and coming out 3.7ft across; folding it into the primary
+    // suite would fix the shape by putting the furnace in the wardrobe.
+    const others = items.filter((other) => other !== item);
+    const leaves = others.filter((other) => !other.children);
+    const host = (leaves.length > 0 ? leaves : others).sort(
+      (a, b) => itemArea(a) - itemArea(b) || a.key.localeCompare(b.key),
+    )[0];
+    if (!host) continue;
+    if (!host.children) {
+      const moved: TileItem = { ...host };
+      host.key = `group:${host.key}`;
+      host.areaSqft = 0;
+      host.aspect = 1.15;
+      host.children = [moved];
+    }
+    host.children.push(item);
+    host.minFt = Math.max(host.minFt ?? 0, item.minFt ?? 0);
+    items.splice(items.indexOf(item), 1);
   }
   return items;
 }
@@ -461,13 +523,66 @@ function addOpenings(model: ParametricModel): void {
  * program flows through exactly the same layout rules.
  */
 export function assembleModel(levelSpecs: RoomSpec[][], maxRowWidthFt: number): ParametricModel {
-  const rooms: Room[] = [];
-  let startKey = 0;
-  levelSpecs.forEach((specs, level) => {
-    const packed = packLevel(specs, level, maxRowWidthFt, startKey);
-    startKey += packed.length;
-    rooms.push(...packed);
-  });
+  // The footprint is chosen, not inherited. Taking the full width the lot
+  // allows is what put a bedroom at 30.6ft x 4.9ft on a 75ft lot: a wide,
+  // shallow storey gives every full-depth room the storey's depth, and on a
+  // shallow storey that is a corridor. Narrower storeys are packed too and
+  // scored the same way the tiler scores its own rows, so the proportions of
+  // the house and the proportions of its rooms are decided by one standard.
+  const targets = new Map<string, { aspect: number; minFt: number }>();
+  for (const specs of levelSpecs) {
+    for (const spec of specs) {
+      targets.set(spec.label, {
+        aspect: spec.aspect,
+        minFt: spec.minFt ?? (/powder/i.test(spec.label) ? 3 : (MIN_WIDTH[spec.kind] ?? 0)),
+      });
+    }
+  }
+  const packAll = (width: number): Room[] => {
+    const out: Room[] = [];
+    let key = 0;
+    levelSpecs.forEach((specs, level) => {
+      const packed = packLevel(specs, level, width, key);
+      key += packed.length;
+      out.push(...packed);
+    });
+    return out;
+  };
+  const cost = (packed: Room[]): number => {
+    let total = 0;
+    for (const room of packed) {
+      const want = targets.get(room.label);
+      if (!want) continue;
+      const [, , w, d] = room.rect;
+      const narrowest = Math.min(w, d);
+      const penalty = narrowest >= want.minFt ? 1 : 10 * (want.minFt / Math.max(narrowest, 0.1));
+      const off = distortion(w / d, want.aspect) * penalty;
+      total += off * off;
+    }
+    return total;
+  };
+  // A storey narrower than its widest room cannot hold it, whatever that does
+  // to the score. This is a bound rather than a cost because the search is a
+  // sum: on a 50ft lot it bought slightly squarer bedrooms with a two-car
+  // garage 17.9ft across, which is a garage you cannot park in.
+  const floorWidth = Math.max(
+    MIN_ROOM_FT * 2,
+    ...levelSpecs.flatMap((specs) => specs.map((spec) => (targets.get(spec.label)?.minFt ?? 0) + WALL_FT)),
+  );
+  // Down to two thirds of the frontage. Below that the house stops being the
+  // shape the lot wants and starts being a tower on a wide lot.
+  let rooms = packAll(maxRowWidthFt);
+  let best = cost(rooms);
+  for (let step = 1; step <= 6; step++) {
+    const width = maxRowWidthFt * (1 - step * 0.055);
+    if (width < floorWidth) break;
+    const candidate = packAll(width);
+    const score = cost(candidate);
+    if (score < best) {
+      best = score;
+      rooms = candidate;
+    }
+  }
   const model: ParametricModel = {
     schemaVersion: 1,
     levels: levelSpecs.length,
@@ -534,7 +649,12 @@ export function generateConcepts(
   return orderedVariants(brief.style).map((variant, vi) => {
     const buildFor = (targetSqft: number | undefined): ParametricModel => {
       const specs = programRooms({ ...brief.program, targetSqft }, brief.style);
-      let maxRow = Math.max(24, lot * variant.rowWidthFactor);
+      // A house is never narrower than thirty feet across, however narrow the
+      // lot: a two-car garage is twenty-one of them, and the compact variant's
+      // 55% of a 50ft frontage left a 27.5ft storey with a galley kitchen
+      // 10ft x 20ft and a closet three feet across. Real narrow-lot plans use
+      // the buildable width and go up, they do not get thinner.
+      let maxRow = Math.max(Math.min(lot, 30), lot * variant.rowWidthFactor);
 
       let levelSpecs: RoomSpec[][];
       if (variant.twoStory) {
