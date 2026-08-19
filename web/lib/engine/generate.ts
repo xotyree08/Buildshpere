@@ -21,6 +21,7 @@ import type {
 } from "../types";
 import { conceptName, styleInfo, type MassingKey } from "../catalog/styles";
 import { massingBias, PORCH_STYLES } from "./roof";
+import { WALL_FT } from "./adjacency";
 
 export interface RoomSpec {
   kind: RoomKind;
@@ -96,48 +97,168 @@ function programRooms(p: ProgramRequirements, style?: HomeStyle): RoomSpec[] {
   return specs;
 }
 
-/** Pack rooms into rows of a fixed row depth along a hallway spine. */
+/**
+ * Narrowest a room may be once its band's depth is fixed.
+ *
+ * Below this a room stops being a room and becomes a slot, so instead of
+ * squeezing it the packer stands it in a column behind its neighbour — a
+ * laundry over a mechanical closet, the way a real plan stacks small service
+ * spaces. Four feet is a galley: tight, but a width people actually build.
+ */
+const MIN_CELL_FT = 4;
+
+/*
+ * Interior partitions come from ./adjacency, which is also where every engine
+ * asking "do these rooms share a wall?" gets its answer. Modelling the wall is
+ * what keeps gross floor area honestly above the sum of the rooms, and it is
+ * what leaves the layout editor somewhere to put a room: pack a storey with no
+ * wall thickness at all and every interior room is wedged solid, unable to
+ * move a single grid step in any direction.
+ */
+
+/** Depth a room wants on its own, from its area and preferred aspect. */
+function nominalDepth(spec: RoomSpec): number {
+  return Math.sqrt(spec.areaSqft / spec.aspect);
+}
+
+/**
+ * Group specs into bands, closing a band when the next room would overrun the
+ * buildable width. This is the rule that gives each variant its footprint, so
+ * it still measures rooms at their natural width rather than their packed one.
+ */
+function assignBands(specs: RoomSpec[], maxRowWidthFt: number): RoomSpec[][] {
+  const bands: RoomSpec[][] = [];
+  let current: RoomSpec[] = [];
+  let used = 0;
+  for (const spec of specs) {
+    const width = spec.areaSqft / nominalDepth(spec);
+    if (used + width > maxRowWidthFt && current.length > 0) {
+      bands.push(current);
+      current = [];
+      used = 0;
+    }
+    current.push(spec);
+    used += width;
+  }
+  if (current.length > 0) bands.push(current);
+  return bands;
+}
+
+/**
+ * Divide one band into columns that tile it exactly.
+ *
+ * Every room in a band shares one depth — the deepest room's, so that room
+ * keeps the proportions it asked for and the others widen to match. A room
+ * too narrow to stand alone at that depth joins the column to its left, and
+ * the column's width is then set by the areas it carries, so the band is
+ * filled edge to edge and floor to back with no room losing or gaining a
+ * square foot.
+ *
+ * This is what stops the footprint coming out as a sawtooth. Rooms used to
+ * keep their own depth inside a shared row, so a twelve-foot kitchen beside a
+ * sixteen-foot living room left a four-foot notch in the outside wall, and
+ * every such notch became its own roof wing with its own ridge.
+ */
+function bandColumns(band: RoomSpec[]): { depthFt: number; columns: RoomSpec[][] } {
+  // Band depth is measured wall face to wall face: the deepest room's own
+  // depth plus the partition behind it.
+  const depthFt = Math.max(...band.map(nominalDepth)) + WALL_FT;
+  const columns: RoomSpec[][] = [];
+  for (const spec of band) {
+    const alone = spec.areaSqft / (depthFt - WALL_FT);
+    const previous = columns[columns.length - 1];
+    // Stacking costs a partition per room, so a column may only take another
+    // room while there is depth left to give it.
+    const room = previous ? depthFt - (previous.length + 1) * WALL_FT : 0;
+    if (alone >= MIN_CELL_FT || !previous || room <= 1) columns.push([spec]);
+    else previous.push(spec);
+  }
+  // A band that opens with a small room has nothing to its left to join, so
+  // it joins the column to its right instead.
+  while (columns.length > 1 && area(columns[0]) / (depthFt - WALL_FT) < MIN_CELL_FT) {
+    const [first] = columns.splice(0, 1);
+    columns[0].unshift(...first);
+  }
+  return { depthFt, columns };
+}
+
+/** Interior width shared by a column's rooms, once its partitions are paid for. */
+function columnWidth(column: RoomSpec[], depthFt: number): number {
+  return area(column) / Math.max(1, depthFt - column.length * WALL_FT);
+}
+
+function area(specs: RoomSpec[]): number {
+  return specs.reduce((sum, s) => sum + s.areaSqft, 0);
+}
+
+/**
+ * Pack rooms into bands of uniform depth, separated by real hallways.
+ *
+ * The circulation between bands used to be a bare gap that no room object
+ * described: the plan claimed 1,693 sqft while standing on a 2,750 sqft
+ * footprint, and every downstream measure had to guess which of the two it
+ * meant. Each gap is now the hallway it always was — drawn, priced, floored
+ * and heated like the rest of the house.
+ */
 function packLevel(specs: RoomSpec[], level: number, maxRowWidthFt: number, startKey: number): Room[] {
   const rooms: Room[] = [];
   let key = startKey;
-  let y = 0;
-  let rowX = 0;
-  let rowDepth = 0;
-  let rowStartY = 0;
+  const bands = assignBands(specs, maxRowWidthFt);
+  const laid: { topFt: number; depthFt: number; widthFt: number; roofedFt: number }[] = [];
+  let z = 0;
 
-  const place = (spec: RoomSpec) => {
-    const depth = Math.sqrt(spec.areaSqft / spec.aspect);
-    const width = spec.areaSqft / depth;
-    if (rowX + width > maxRowWidthFt && rowX > 0) {
-      // close the row, insert hallway strip, start next row
-      y = rowStartY + rowDepth + HALL_WIDTH_FT;
-      rowX = 0;
-      rowDepth = 0;
-      rowStartY = y;
+  for (const band of bands) {
+    const { depthFt, columns } = bandColumns(band);
+    const bandDepth = round1(depthFt);
+    let x = 0;
+    let roofed = 0;
+    for (const column of columns) {
+      const width = round1(columnWidth(column, depthFt));
+      let cz = z;
+      column.forEach((spec, i) => {
+        // The last room in a column takes whatever depth is left, so rounding
+        // can never open a seam between a column and the band behind it.
+        const last = i === column.length - 1;
+        const depth = last
+          ? round1(z + bandDepth - cz - WALL_FT)
+          : round1(spec.areaSqft / width);
+        rooms.push({
+          key: `r${key++}`,
+          kind: spec.kind,
+          label: spec.label,
+          level,
+          // Half a partition inside each face of the module: the rectangle is
+          // the room, not the room plus its share of the walls.
+          rect: [round1(x + WALL_FT / 2), round1(cz + WALL_FT / 2), width, Math.max(round1(depth), 1)],
+        });
+        cz = round1(cz + depth + WALL_FT);
+      });
+      x = round1(x + width + WALL_FT);
+      // A porch is not part of the house's interior, so the hallway behind it
+      // must not run out over it — that drew circulation across open decking
+      // and left the roof two stray wings chasing it.
+      if (column.some((spec) => spec.kind !== "outdoor")) roofed = x;
     }
-    rooms.push({
-      key: `r${key++}`,
-      kind: spec.kind,
-      label: spec.label,
-      level,
-      rect: [round1(rowX), round1(rowStartY), round1(width), round1(depth)],
-    });
-    rowX += width;
-    rowDepth = Math.max(rowDepth, depth);
-  };
+    laid.push({ topFt: z, depthFt: bandDepth, widthFt: x, roofedFt: roofed });
+    z = round1(z + bandDepth + HALL_WIDTH_FT);
+  }
 
-  specs.forEach(place);
-
-  // one hallway spine per level, spanning the used width
-  const usedWidth = Math.max(...rooms.map((r) => r.rect[0] + r.rect[2]), 0);
-  const usedDepth = Math.max(...rooms.map((r) => r.rect[1] + r.rect[3]), 0);
-  if (rooms.length > 1) {
+  // One hallway per gap, as wide as the wider of the two bands it serves, so
+  // the storey reads as one connected floor rather than a stack of islands.
+  for (let i = 0; i + 1 < laid.length; i++) {
+    const width = Math.max(laid[i].roofedFt, laid[i + 1].roofedFt);
+    if (width <= 0) continue;
     rooms.push({
       key: `r${key++}`,
       kind: "hallway",
-      label: level === 0 ? "Hall" : `Hall L${level + 1}`,
+      label: level === 0 ? (i === 0 ? "Hall" : `Hall ${i + 1}`) : `Hall L${level + 1}${i === 0 ? "" : ` ${i + 1}`}`,
       level,
-      rect: [0, round1(usedDepth), round1(usedWidth), HALL_WIDTH_FT],
+      rect: [
+        round1(WALL_FT / 2),
+        round1(laid[i].topFt + laid[i].depthFt + WALL_FT / 2),
+        round1(width - WALL_FT),
+        round1(HALL_WIDTH_FT - WALL_FT),
+      ],
     });
   }
   return rooms;
@@ -231,6 +352,17 @@ function orderedVariants(style: HomeStyle): ConceptVariant[] {
   });
 }
 
+/**
+ * The home's own square footage: everything but the garage and the outdoor
+ * rooms. Hallways count — people walk through them, the floor is finished and
+ * the heat reaches them, and a plan that excludes them understates the house.
+ */
+function livableSqft(model: ParametricModel): number {
+  return model.rooms
+    .filter((r) => r.kind !== "garage" && r.kind !== "outdoor")
+    .reduce((sum, r) => sum + r.rect[2] * r.rect[3], 0);
+}
+
 /** Ground-floor depth of a model, in feet. */
 function planDepthFt(model: ParametricModel): number {
   const ground = model.rooms.filter((r) => r.level === 0);
@@ -246,59 +378,76 @@ export function generateConcepts(
   const lot = lotWidthFt && lotWidthFt > 24 ? lotWidthFt : 60;
   const depthBudget = depthBudgetFt && depthBudgetFt > 24 ? depthBudgetFt : null;
   return orderedVariants(brief.style).map((variant, vi) => {
-    const specs = programRooms(brief.program, brief.style);
-    let maxRow = Math.max(24, lot * variant.rowWidthFactor);
+    const buildFor = (targetSqft: number | undefined): ParametricModel => {
+      const specs = programRooms({ ...brief.program, targetSqft }, brief.style);
+      let maxRow = Math.max(24, lot * variant.rowWidthFactor);
 
-    let levelSpecs: RoomSpec[][];
-    if (variant.twoStory) {
-      const publicSpecs = specs.filter((s) => s.public || s.kind === "garage" || s.kind === "laundry");
-      const privateSpecs = specs.filter((s) => !publicSpecs.includes(s));
-      // keep one bath downstairs for accessibility
-      const downBathIdx = privateSpecs.findIndex((s) => s.kind === "bathroom");
-      if (downBathIdx >= 0) publicSpecs.push(...privateSpecs.splice(downBathIdx, 1));
-      levelSpecs = [publicSpecs, privateSpecs];
-    } else {
-      levelSpecs = [specs];
-    }
-
-    // A narrow variant on a big program can pack deeper than the lot
-    // allows; widen the rows (never past the buildable width) until the
-    // plan fits the depth budget too. Deterministic: fixed growth, bounded.
-    let model = assembleModel(levelSpecs.map((l) => [...l]), maxRow);
-    if (depthBudget) {
-      let guard = 0;
-      while (guard++ < 8 && maxRow < lot && planDepthFt(model) > depthBudget) {
-        maxRow = Math.min(lot, maxRow * 1.2);
-        model = assembleModel(levelSpecs.map((l) => [...l]), maxRow);
+      let levelSpecs: RoomSpec[][];
+      if (variant.twoStory) {
+        const publicSpecs = specs.filter((s) => s.public || s.kind === "garage" || s.kind === "laundry");
+        const privateSpecs = specs.filter((s) => !publicSpecs.includes(s));
+        // keep one bath downstairs for accessibility
+        const downBathIdx = privateSpecs.findIndex((s) => s.kind === "bathroom");
+        if (downBathIdx >= 0) publicSpecs.push(...privateSpecs.splice(downBathIdx, 1));
+        levelSpecs = [publicSpecs, privateSpecs];
+      } else {
+        levelSpecs = [specs];
       }
-      // Width exhausted and still too deep: deepen the living rooms
-      // (lower aspect → narrower rooms → fuller rows), the way narrow-lot
-      // homes are actually proportioned. Garages and outdoor spaces keep
-      // their natural shape — a square garage helps nobody.
-      for (const scale of variant.deepenScales) {
-        if (planDepthFt(model) <= depthBudget) break;
-        const deepened = levelSpecs.map((l) =>
-          l.map((spec) =>
-            spec.kind === "garage" || spec.kind === "outdoor"
-              ? { ...spec }
-              : { ...spec, aspect: Math.max(0.6, spec.aspect * scale) },
-          ),
-        );
-        model = assembleModel(deepened, maxRow);
+
+      // A narrow variant on a big program can pack deeper than the lot
+      // allows; widen the rows (never past the buildable width) until the
+      // plan fits the depth budget too. Deterministic: fixed growth, bounded.
+      let built = assembleModel(levelSpecs.map((l) => [...l]), maxRow);
+      if (depthBudget) {
+        let guard = 0;
+        while (guard++ < 8 && maxRow < lot && planDepthFt(built) > depthBudget) {
+          maxRow = Math.min(lot, maxRow * 1.2);
+          built = assembleModel(levelSpecs.map((l) => [...l]), maxRow);
+        }
+        // Width exhausted and still too deep: deepen the living rooms
+        // (lower aspect → narrower rooms → fuller rows), the way narrow-lot
+        // homes are actually proportioned. Garages and outdoor spaces keep
+        // their natural shape — a square garage helps nobody.
+        for (const scale of variant.deepenScales) {
+          if (planDepthFt(built) <= depthBudget) break;
+          const deepened = levelSpecs.map((l) =>
+            l.map((spec) =>
+              spec.kind === "garage" || spec.kind === "outdoor"
+                ? { ...spec }
+                : { ...spec, aspect: Math.max(0.6, spec.aspect * scale) },
+            ),
+          );
+          built = assembleModel(deepened, maxRow);
+        }
+      }
+      return built;
+    };
+
+    const target = brief.program.targetSqft;
+    let model = buildFor(target);
+
+    // A square-footage target is a promise about the HOME, and a home includes
+    // its hallways. programRooms only scales rooms, so asking for 2,600 sqft
+    // used to deliver 2,600 sqft of rooms standing in a 3,160 sqft house.
+    // Solve for the room scale that lands the finished plan on the number the
+    // customer actually asked for: measure, correct, rebuild. Bounded passes,
+    // so it stays deterministic and cannot spin.
+    if (target && target > 0) {
+      let effective = target;
+      for (let pass = 0; pass < 4; pass++) {
+        const actual = livableSqft(model);
+        if (actual <= 0 || Math.abs(actual - target) / target <= 0.02) break;
+        effective = (effective * target) / actual;
+        model = buildFor(effective);
       }
     }
-    const rooms = model.rooms;
-
-    const sqft = Math.round(
-      rooms.filter((r) => r.kind !== "garage" && r.kind !== "outdoor").reduce((a, r) => a + r.rect[2] * r.rect[3], 0),
-    );
 
     return {
       id: `concept-${vi}`,
       briefId: brief.id,
       label: conceptName(styleInfo(brief.style)?.category, variant.massing) ?? variant.label,
       style: brief.style,
-      sqft,
+      sqft: Math.round(livableSqft(model)),
       beds: brief.program.bedrooms,
       baths: brief.program.bathrooms,
       model,

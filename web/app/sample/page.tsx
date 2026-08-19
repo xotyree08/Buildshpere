@@ -65,7 +65,7 @@ export default function SamplePage() {
     const packages = runDesignLoop(SAMPLE_BRIEF, {
       lotWidthFt: 90,
       lotDepthFt: 150,
-      budgetCents: 685_000_00,
+      budgetCents: 725_000_00,
       regionCode: "US_NATIONAL",
       finishes: SAMPLE_FINISHES,
     });
@@ -77,7 +77,7 @@ export default function SamplePage() {
         addressText: null,
         lotWidthFt: 90,
         lotDepthFt: 150,
-        budgetCents: 685_000_00,
+        budgetCents: 725_000_00,
         status: "designing",
       },
       brief: SAMPLE_BRIEF,

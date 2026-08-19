@@ -28,6 +28,7 @@
  */
 
 import { roofFor, type RoofForm } from "./roof";
+import { ADJACENCY_TOLERANCE_FT } from "./adjacency";
 import { WALL_HEIGHT_FT } from "./iso";
 import type { HomeStyle, ParametricModel, Room } from "../types";
 
@@ -98,6 +99,15 @@ function roofedRooms(model: ParametricModel, level: number): Room[] {
  */
 export const CIRCULATION_GAP_FT = 6;
 
+/**
+ * A room rectangle is an interior dimension, so two rooms either side of a
+ * six-inch partition do not touch. The roof covers the partition — it covers
+ * the whole structure — and treating that gap as open ground shattered a plain
+ * house into twenty-one wings, one splinter per wall line. The tolerance is
+ * the same one every other engine uses to decide two rooms are neighbours.
+ */
+const STRUCTURE_GAP_FT = ADJACENCY_TOLERANCE_FT;
+
 /** Merge spans that overlap or sit within `bridgeFt` of one another. */
 function mergeSpans(spans: [number, number][], bridgeFt: number): [number, number][] {
   const sorted = [...spans].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
@@ -134,13 +144,31 @@ function squareNotches(rooms: Room[]): [number, number, number, number][] {
     for (const other of rooms) {
       if (other === room) continue;
       const [ox, oz, ow, od] = other.rect;
-      const touchX = Math.abs(ox + ow - x) < 1e-9 || Math.abs(x + w - ox) < 1e-9;
-      const touchZ = Math.abs(oz + od - z) < 1e-9 || Math.abs(z + d - oz) < 1e-9;
-      if (touchX && Math.min(z + d, oz + od) - Math.max(z, oz) > 1e-9) {
+      const overlapX = Math.min(x + w, ox + ow) - Math.max(x, ox);
+      const overlapZ = Math.min(z + d, oz + od) - Math.max(z, oz);
+      const wall = (gap: number) => gap > 1e-9 && gap <= STRUCTURE_GAP_FT + 1e-9;
+
+      // Close the wall. Room rectangles are interior dimensions, so two rooms
+      // either side of a partition stand a few inches apart; the roof covers
+      // the partition. Left open, that strip is a hole running the height of
+      // the plan, and the decomposition splinters along every wall line.
+      if (overlapZ > 1e-9) {
+        if (wall(ox - (x + w))) x1 = Math.max(x1, ox);
+        if (wall(x - (ox + ow))) x0 = Math.min(x0, ox + ow);
+      }
+      if (overlapX > 1e-9) {
+        if (wall(oz - (z + d))) z1 = Math.max(z1, oz);
+        if (wall(z - (oz + od))) z0 = Math.min(z0, oz + od);
+      }
+
+      // Square the notch. Neighbours count as adjacent across a wall.
+      const touchX = Math.abs(ox + ow - x) <= STRUCTURE_GAP_FT + 1e-9 || Math.abs(x + w - ox) <= STRUCTURE_GAP_FT + 1e-9;
+      const touchZ = Math.abs(oz + od - z) <= STRUCTURE_GAP_FT + 1e-9 || Math.abs(z + d - oz) <= STRUCTURE_GAP_FT + 1e-9;
+      if (touchX && overlapZ > 1e-9) {
         if (z - oz > 1e-9 && z - oz <= CIRCULATION_GAP_FT) z0 = Math.min(z0, oz);
         if (oz + od - (z + d) > 1e-9 && oz + od - (z + d) <= CIRCULATION_GAP_FT) z1 = Math.max(z1, oz + od);
       }
-      if (touchZ && Math.min(x + w, ox + ow) - Math.max(x, ox) > 1e-9) {
+      if (touchZ && overlapX > 1e-9) {
         if (x - ox > 1e-9 && x - ox <= CIRCULATION_GAP_FT) x0 = Math.min(x0, ox);
         if (ox + ow - (x + w) > 1e-9 && ox + ow - (x + w) <= CIRCULATION_GAP_FT) x1 = Math.max(x1, ox + ow);
       }
@@ -229,8 +257,11 @@ export function decomposeWings(rooms: Room[]): [number, number, number, number][
     for (const [z0, z1] of col.spans) {
       const key = `${z0.toFixed(4)}:${z1.toFixed(4)}`;
       const prior = open.get(key);
-      if (prior && Math.abs(prior[0] + prior[2] - col.x0) < 1e-9) {
-        prior[2] += col.x1 - col.x0;
+      // A wall's worth of empty slice between two columns is the wall, not a
+      // break in the building, so the wing runs straight through it.
+      const gap = prior ? col.x0 - (prior[0] + prior[2]) : Infinity;
+      if (prior && gap >= -1e-9 && gap <= STRUCTURE_GAP_FT + 1e-9) {
+        prior[2] = col.x1 - prior[0];
         next.set(key, prior);
       } else {
         const rect: [number, number, number, number] = [col.x0, z0, col.x1 - col.x0, z1 - z0];
