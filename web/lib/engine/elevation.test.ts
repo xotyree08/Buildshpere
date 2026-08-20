@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { DesignBrief, HomeStyle } from "../types";
+import { exteriorRuns } from "./adjacency";
 import { buildElevation } from "./elevation";
 import { generateConcepts } from "./generate";
 import { WALL_HEIGHT_FT } from "./iso";
@@ -65,16 +66,31 @@ describe("buildElevation", () => {
     expect(side.roof).toHaveLength(ridgeAlongX ? 3 : 4);
   });
 
-  it("places the plan's actual north windows on the front; the east side is honest about having none", () => {
+  it("every elevation draws exactly the openings the plan puts on that face", () => {
+    // This used to assert the front carried more than three windows, on the
+    // assumption that a plan's windows were all on its north wall — they were,
+    // because the generator put them there whether or not north was outside.
+    // A house has windows on every side that faces out, and each elevation
+    // draws its own.
     const concept = generateConcepts(brief("craftsman"), 60)[0];
-    const northWindows = concept.model.openings.filter((o) => o.wall === "n" && o.kind === "window").length;
-    const front = buildElevation(concept.model, "craftsman", "north");
-    expect(front.openings.filter((o) => o.kind === "window")).toHaveLength(northWindows);
-    expect(northWindows).toBeGreaterThan(3);
-
-    const side = buildElevation(concept.model, "craftsman", "east");
-    const eastOpenings = concept.model.openings.filter((o) => o.wall === "e").length;
-    expect(side.openings).toHaveLength(eastOpenings);
+    const rooms = concept.model.rooms.filter((r) => r.level === 0);
+    for (const [face, wall] of [["north", "n"], ["east", "e"]] as const) {
+      const drawn = buildElevation(concept.model, "craftsman", face);
+      const planned = concept.model.openings.filter((o) => {
+        if (o.wall !== wall) return false;
+        const room = concept.model.rooms.find((r) => r.key === o.roomKey)!;
+        if (room.kind === "outdoor") return false;
+        return exteriorRuns(room, rooms, wall).some(
+          (run) => o.offsetFt >= run.from - 0.6 && o.offsetFt + o.widthFt <= run.to + 0.6,
+        );
+      });
+      expect(drawn.openings, face).toHaveLength(planned.length);
+      expect(planned.length, face).toBeGreaterThan(0);
+    }
+    // And the plan glazes more than one face, which is the point: windows go
+    // where a wall faces out, not all on the wall the generator called north.
+    const walls = new Set(concept.model.openings.filter((o) => o.kind === "window").map((o) => o.wall));
+    expect(walls.size).toBeGreaterThanOrEqual(3);
   });
 
   it("openings sit within the elevation bounds and above grade", () => {

@@ -21,7 +21,7 @@ import type {
 } from "../types";
 import { conceptName, styleInfo, type MassingKey } from "../catalog/styles";
 import { massingBias, PORCH_STYLES } from "./roof";
-import { WALL_FT } from "./adjacency";
+import { exteriorRuns, MIN_OPENING_RUN_FT, sharedWall, WALL_FT, WALL_SIDES, type WallSide } from "./adjacency";
 import { distortion, itemArea, tile, type TileItem } from "./tile";
 
 export interface RoomSpec {
@@ -243,6 +243,9 @@ function tileItems(specs: RoomSpec[]): TileItem[] {
       // minimum hands back a nine-and-a-half-foot room. A powder room is the
       // one bathroom that is genuinely narrow.
       minFt: (spec.minFt ?? (/powder/i.test(spec.label) ? 3 : (MIN_WIDTH[spec.kind] ?? 0))) + WALL_FT,
+      // Habitable rooms have to reach an outside wall — a window is not a
+      // finish, it is how you see out and how you get out.
+      needsLight: HABITABLE.includes(spec.kind),
     };
     const groupKey = spec.suite ?? paired.get(spec.label);
     if (!groupKey) {
@@ -401,6 +404,10 @@ function packLevel(specs: RoomSpec[], level: number, maxRowWidthFt: number, star
   let z = 0;
   let frontDepth = 0;
   let frontX = 0;
+  // The porch takes the frontage first: it is the thing you walk up to, and a
+  // porch behind the garage is not a front porch. A garage pushed onto the
+  // second line still has its flanks, and opens through one of those — a
+  // side-loaded garage, which is a plan builders draw on purpose.
   for (const spec of [...porches, ...garages]) {
     // Each keeps the shape it asked for. If what is left of the width cannot
     // take it, it goes on the next line rather than being squeezed into the
@@ -452,7 +459,18 @@ function packLevel(specs: RoomSpec[], level: number, maxRowWidthFt: number, star
 
   for (const [index, zone] of zones.entries()) {
     const depth = (bodyDepth * walled(zone)) / roomArea;
-    for (const placed of tile(tileItems(zone), [0, z, width, depth])) {
+    // Which sides of this band are the outside of the house. The flanks
+    // always are. The front is only outside when nothing stands in front of
+    // it, and the back only when nothing follows — the corridor between two
+    // zones is not daylight, and counting it as such kept landlocking
+    // bedrooms in the middle of the sleeping side.
+    const edges = {
+      w: true,
+      e: true,
+      n: index === 0 && porches.length === 0 && garages.length === 0,
+      s: index === zones.length - 1 && terraces.length === 0,
+    };
+    for (const placed of tile(tileItems(zone), [0, z, width, depth], edges)) {
       const spec = zone.find((candidate) => candidate.label === placed.key);
       if (spec) emit(spec, placed.rect);
     }
@@ -484,36 +502,196 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10;
 }
 
+/** Rooms that get daylight: a bedroom needs a window, a closet does not. */
+const HABITABLE: RoomKind[] = ["bedroom", "living", "dining", "kitchen", "office", "gym", "theater"];
+
+/** A window opening, and how far apart a row of them sits on one wall. */
+const WINDOW_FT = 4;
+const WINDOW_SPACING_FT = 7;
+/** Bath and utility windows are narrow and high — privacy, not a view. */
+const SMALL_WINDOW_FT = 2.5;
+/** Windows stop this far short of a corner — you cannot trim one into a corner. */
+const CORNER_INSET_FT = 1.2;
+/** Rooms that take a small window rather than none at all. */
+const LIT_SERVICE: RoomKind[] = ["bathroom", "laundry"];
+
+/**
+ * Doors and windows on the walls that actually have them.
+ *
+ * This used to put every window on the room's north wall, on the theory that
+ * north is the street. That was true of the front row and of nothing else: a
+ * generated house came back with its windows buried in interior partitions in
+ * the middle of the plan and every outside wall blank. The 3D view of it was a
+ * shoebox. Now each wall is asked which stretches of itself face outdoors, and
+ * the openings go there.
+ */
 function addOpenings(model: ParametricModel): void {
-  const halls = model.rooms.filter((r) => r.kind === "hallway");
   let key = 0;
-  for (const room of model.rooms) {
-    if (room.kind === "hallway") continue;
-    // interior door toward the hallway side (south wall by construction)
-    model.openings.push({
-      key: `o${key++}`,
-      kind: room.kind === "outdoor" ? "opening" : "door",
-      roomKey: room.key,
-      wall: "s",
-      offsetFt: round1(room.rect[2] / 2),
-      widthFt: room.kind === "garage" ? 9 : 3,
-    });
-    // windows on the exterior (north) wall for habitable rooms
-    const habitable: RoomKind[] = ["bedroom", "living", "dining", "kitchen", "office", "gym", "theater"];
-    if (habitable.includes(room.kind)) {
-      const count = Math.max(1, Math.floor(room.rect[2] / 8));
-      for (let i = 0; i < count; i++) {
-        model.openings.push({
-          key: `o${key++}`,
-          kind: "window",
-          roomKey: room.key,
-          wall: "n",
-          offsetFt: round1(((i + 0.5) * room.rect[2]) / count),
-          widthFt: 4,
-        });
+  const add = (
+    kind: Opening["kind"],
+    room: Room,
+    wall: WallSide,
+    offsetFt: number,
+    widthFt: number,
+  ) => {
+    model.openings.push({ key: `o${key++}`, kind, roomKey: room.key, wall, offsetFt: round1(offsetFt), widthFt });
+  };
+
+  for (let level = 0; level < model.levels; level++) {
+    const rooms = model.rooms.filter((r) => r.level === level);
+    const halls = rooms.filter((r) => r.kind === "hallway");
+    const street = Math.min(...rooms.map((r) => r.rect[1]));
+
+    // Outside wall, by room and by face, with the doors taken out of it as
+    // they are placed. Windows are laid into what is left, so a front door
+    // and a window no longer come out of the wall in the same three feet.
+    const free = new Map<string, { from: number; to: number }[]>();
+    const at = (room: Room, side: WallSide) => `${room.key}:${side}`;
+    for (const room of rooms) {
+      for (const side of WALL_SIDES) free.set(at(room, side), exteriorRuns(room, rooms, side));
+    }
+    const widest = (room: Room, side: WallSide) =>
+      free.get(at(room, side))!.reduce<{ from: number; to: number } | null>(
+        (best, run) => (!best || run.to - run.from > best.to - best.from ? run : best),
+        null,
+      );
+    const consume = (room: Room, side: WallSide, from: number, to: number) => {
+      const runs = free.get(at(room, side))!;
+      free.set(
+        at(room, side),
+        runs.flatMap((run) => {
+          if (to <= run.from || from >= run.to) return [run];
+          const left = { from: run.from, to: Math.min(from, run.to) };
+          const right = { from: Math.max(to, run.from), to: run.to };
+          return [left, right].filter((piece) => piece.to - piece.from >= MIN_OPENING_RUN_FT);
+        }),
+      );
+    };
+
+    // The garage door, on the outside wall facing the street. A garage with
+    // its door on an interior partition is a garage you cannot drive into,
+    // and the driveway in every view is drawn from wherever this lands.
+    for (const garage of rooms.filter((r) => r.kind === "garage")) {
+      // The street face if it has one, else the widest outside wall it has —
+      // side-loaded and alley-loaded garages are both real, and a garage whose
+      // only outside wall faces the back still has to open somewhere.
+      // Only walls with room for a bay are candidates, and the street face
+      // wins among those. Preferring north outright picked a four-foot strip
+      // of frontage beside the porch and then gave up, leaving the garage with
+      // no vehicle door at all while twenty-four feet of flank stood free.
+      const best = WALL_SIDES.map((side) => ({ side, run: widest(garage, side) }))
+        .filter((o): o is { side: WallSide; run: { from: number; to: number } } =>
+          o.run !== null && o.run.to - o.run.from >= 9)
+        .sort(
+          (a, b) =>
+            (a.side === "n" ? 0 : 1) - (b.side === "n" ? 0 : 1) ||
+            b.run.to - b.run.from - (a.run.to - a.run.from),
+        )[0];
+      if (!best) continue;
+      const bay = Math.min(best.run.to - best.run.from - 1, 16);
+      const from = (best.run.from + best.run.to) / 2 - bay / 2;
+      add("door", garage, best.side, from, round1(bay));
+      consume(garage, best.side, from, from + bay);
+    }
+
+    // The front door, on the street face of whatever you arrive into: the
+    // porch if there is one, then the public rooms in the order a plan puts
+    // them. Requiring the entry to touch the street line left a garage-forward
+    // house with no front door at all — nothing but the garage was that far
+    // forward, and the door belongs behind it, still facing the street.
+    if (level === 0) {
+      const rank = (room: Room) =>
+        room.kind === "outdoor" ? 0
+        : room.kind === "living" ? 1
+        : room.kind === "dining" ? 2
+        : room.kind === "kitchen" ? 3
+        : 4;
+      const entries = rooms
+        .filter((r) => r.kind !== "garage" && r.kind !== "hallway")
+        .sort((a, b) => rank(a) - rank(b) || a.rect[1] - b.rect[1]);
+      // The street face first. When nothing has one — a narrow lot where the
+      // garage spans the whole frontage, which is a plan builders really do
+      // draw — the door goes in the flank, and you walk up the side of the
+      // house to it. Insisting on a street-facing door left that plan with no
+      // way in at all.
+      let placed = false;
+      for (const side of ["n", "w", "e", "s"] as const) {
+        for (const entry of entries) {
+          const run = widest(entry, side);
+          if (!run || run.to - run.from < 5) continue;
+          const from = (run.from + run.to) / 2 - 1.75;
+          add("door", entry, side, from, 3.5);
+          consume(entry, side, from - 0.5, from + 4);
+          placed = true;
+          break;
+        }
+        if (placed) break;
       }
     }
-    void halls;
+
+    for (const room of rooms) {
+      if (room.kind === "hallway") continue;
+
+      // The way in from indoors. A room is entered from the hallway it
+      // touches, through the middle of the run they share, which is what makes
+      // the walkthrough walk and the plan read. Without a hall to open off — a
+      // porch, a garage, a room on a storey with no corridor — the door goes
+      // in the longest wall that is not an outside wall, rather than always
+      // facing south because south was where the corridor used to be.
+      const hall = halls
+        .map((h) => ({ h, wall: sharedWall(room.rect, h.rect) }))
+        .filter((c) => c.wall && c.wall.to - c.wall.from >= 3)
+        .sort((a, b) => b.wall!.to - b.wall!.from - (a.wall!.to - a.wall!.from))[0];
+      // The way from the garage into the house is a person door. Making it
+      // nine feet wide gave the garage two vehicle-sized doors, and every
+      // renderer that looks for "the widest door" to find the one you drive
+      // through could pick the one into the hallway.
+      const doorWidth = room.kind === "outdoor" ? 6 : 3;
+      if (hall) {
+        const [x, z, w, d] = room.rect;
+        const { axis, at: line, from, to } = hall.wall!;
+        const mid = (from + to) / 2;
+        const side: WallSide = axis === "z" ? (line < z + d / 2 ? "n" : "s") : line < x + w / 2 ? "w" : "e";
+        const along = axis === "z" ? mid - x : mid - z;
+        add(room.kind === "outdoor" ? "opening" : "door", room, side, Math.max(0, along - doorWidth / 2), doorWidth);
+      } else {
+        const inside = WALL_SIDES.map((side) => {
+          const span = side === "n" || side === "s" ? room.rect[2] : room.rect[3];
+          const outside = free.get(at(room, side))!.reduce((sum, r) => sum + (r.to - r.from), 0);
+          return { side, run: span - outside, span };
+        }).sort((a, b) => b.run - a.run)[0];
+        add(
+          room.kind === "outdoor" ? "opening" : "door",
+          room,
+          inside.side,
+          Math.max(0, inside.span / 2 - doorWidth / 2),
+          doorWidth,
+        );
+      }
+
+      // A porch is already open — it is drawn as a railing, and cutting a
+      // window into a railing is not a window, it is a gap in a fence.
+      const lit = HABITABLE.includes(room.kind);
+      if (!lit && !LIT_SERVICE.includes(room.kind)) continue;
+      const width = lit ? WINDOW_FT : SMALL_WINDOW_FT;
+      for (const side of WALL_SIDES) {
+        for (const run of free.get(at(room, side))!) {
+          const usable = run.to - run.from - CORNER_INSET_FT * 2;
+          // A hair of slack, because these are differences of rounded
+          // dimensions: a kitchen's seven-foot strip of outside wall measured
+          // 3.999999999999996 feet of usable run and came back windowless.
+          if (usable < width - 1e-6) continue;
+          // One window every seven feet or so, spread evenly down the run — a
+          // wall with three evenly spaced windows reads as a house, one with a
+          // single window floating at its midpoint does not.
+          const n = Math.max(1, Math.round(usable / WINDOW_SPACING_FT));
+          for (let i = 0; i < n; i++) {
+            const centre = run.from + CORNER_INSET_FT + ((i + 0.5) * usable) / n;
+            add("window", room, side, centre - width / 2, width);
+          }
+        }
+      }
+    }
   }
 }
 

@@ -20,6 +20,8 @@ export interface ExteriorPalette {
   trim: string;
   glass: string;
   door: string;
+  /** Vehicle doors are a panel product, not the same thing as a front door. */
+  garageDoor: string;
   wallTexture: WallTexture;
   roofTexture: RoofTexture;
 }
@@ -64,7 +66,13 @@ export function exteriorPalette(finishes?: FinishSelections): ExteriorPalette {
     roofShade: shade(roofing.color, 0.7),
     trim: "#f2efe8",
     glass: "#b9d4e2",
-    door: shade(siding.color, 0.45),
+    // A front door is the one place on an elevation that gets a colour of its
+    // own. Taking 45% of the siding gave a near-black rectangle that read as a
+    // hole in the wall rather than a way into the house.
+    door: "#5c4433",
+    // And a garage door is a light panelled product in almost every house
+    // built — dark grey is the exception, not the default.
+    garageDoor: "#e6e2d9",
     wallTexture: siding.texture,
     roofTexture: roofing.texture,
   };

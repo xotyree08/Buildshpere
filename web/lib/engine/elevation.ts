@@ -7,6 +7,7 @@
  */
 
 import type { HomeStyle, ParametricModel } from "../types";
+import { exteriorRuns } from "./adjacency";
 import { WALL_HEIGHT_FT } from "./iso";
 import { buildRoof } from "./roofgeom";
 
@@ -123,8 +124,18 @@ export function buildElevation(
   for (const room of model.rooms) {
     if (room.kind === "outdoor") continue;
     const base = height - room.level * WALL_HEIGHT_FT;
+    // Only what is actually in the outside wall. A room's door to the hallway
+    // can sit on its north face, and drawing it on the front elevation put a
+    // door on the facade that opens into the middle of the house.
+    const outside = exteriorRuns(
+      room,
+      model.rooms.filter((r) => r.level === room.level),
+      wall,
+    );
     for (const o of model.openings) {
       if (o.roomKey !== room.key || o.wall !== wall) continue;
+      const on = outside.some((run) => o.offsetFt >= run.from - 0.6 && o.offsetFt + o.widthFt <= run.to + 0.6);
+      if (!on) continue;
       const center = room.rect[axis] + Math.min(o.offsetFt, room.rect[axis + 2]) - origin;
       const x = center - o.widthFt / 2;
       if (o.kind === "window") {
