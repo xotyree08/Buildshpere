@@ -8,6 +8,7 @@
 
 import type { FinishSelections } from "../catalog/materials";
 import { defaultSchemeFor, furnitureForModel, schemeByKey, type FurnitureItem, type InteriorScheme } from "../engine/interiors";
+import { exteriorRuns } from "../engine/adjacency";
 import { buildRoof, roofFacets, roofPeakFt, type RoofGeometry } from "../engine/roofgeom";
 import { WALL_HEIGHT_FT } from "../engine/iso";
 import type { HomeStyle, ParametricModel, Room } from "../types";
@@ -311,8 +312,66 @@ export function buildScene3D(
       boxes.push({ x: x - 0.15, y: -1.2, z: z - 0.15, w: w + 0.3, h: 1.6, d: d + 0.3, color: "#8d8880", kind: "plinth" });
     }
     if (room.kind === "outdoor") {
-      // Porch/deck: railing-height perimeter instead of full walls.
-      boxes.push(...wallBoxes(room, base, RAIL_H, palette.trim, cuts));
+      // A porch is a covered deck, not a walled box.
+      //
+      // Ringing it with railing on all four sides walled it off from the house
+      // it belongs to, and leaving it uncovered left a pen in the front garden
+      // where a porch should be. Railings go only on the sides that face out,
+      // posts stand at the outer corners, and a shallow roof sits on them.
+      const RAIL_T = 0.35;
+      const POST = 0.55;
+      const level = model.rooms.filter((r) => r.level === room.level);
+      const outward = new Map(
+        (["n", "s", "e", "w"] as const).map((side) => [side, exteriorRuns(room, level, side)]),
+      );
+      const doors = model.openings.filter((o) => o.roomKey === room.key);
+      for (const [side, runs] of outward) {
+        for (const run of runs) {
+          // The way onto the porch stays open.
+          const gaps = doors.filter((o) => o.wall === side);
+          const pieces: [number, number][] = [[run.from, run.to]];
+          for (const gap of gaps) {
+            for (let i = pieces.length - 1; i >= 0; i--) {
+              const [from, to] = pieces[i];
+              const g0 = gap.offsetFt - 0.3;
+              const g1 = gap.offsetFt + gap.widthFt + 0.3;
+              if (g1 <= from || g0 >= to) continue;
+              pieces.splice(i, 1, [from, Math.min(g0, to)], [Math.max(g1, from), to]);
+            }
+          }
+          for (const [from, to] of pieces.filter(([a, b]) => b - a > 0.4)) {
+            const alongX = side === "n" || side === "s";
+            const at = side === "n" ? z : side === "s" ? z + d - RAIL_T : side === "w" ? x : x + w - RAIL_T;
+            boxes.push(
+              alongX
+                ? { x: x + from, y: base + RAIL_H - 0.35, z: at, w: to - from, h: 0.35, d: RAIL_T, color: palette.trim, kind: "trim" }
+                : { x: at, y: base + RAIL_H - 0.35, z: z + from, w: RAIL_T, h: 0.35, d: to - from, color: palette.trim, kind: "trim" },
+            );
+            boxes.push(
+              alongX
+                ? { x: x + from, y: base + 0.4, z: at + 0.1, w: to - from, h: RAIL_H - 0.9, d: RAIL_T - 0.2, color: palette.trim, kind: "trim" }
+                : { x: at + 0.1, y: base + 0.4, z: z + from, w: RAIL_T - 0.2, h: RAIL_H - 0.9, d: to - from, color: palette.trim, kind: "trim" },
+            );
+          }
+        }
+      }
+      // Posts at the outer corners, and a roof resting on them.
+      const openN = (outward.get("n") ?? []).length > 0;
+      if (openN) {
+        for (const px of [x + 0.2, x + w - POST - 0.2]) {
+          boxes.push({ x: px, y: base, z: z + 0.2, w: POST, h: WALL_HEIGHT_FT - 0.6, d: POST, color: palette.trim, kind: "trim" });
+        }
+        boxes.push({
+          x: x - ROOF_OVERHANG,
+          y: base + WALL_HEIGHT_FT - 0.6,
+          z: z - ROOF_OVERHANG,
+          w: w + ROOF_OVERHANG * 2,
+          h: 0.6,
+          d: d + ROOF_OVERHANG,
+          color: palette.roof,
+          kind: "slab",
+        });
+      }
       continue;
     }
     boxes.push(...wallBoxes(room, base, WALL_HEIGHT_FT, palette.wall, cuts));
@@ -322,7 +381,9 @@ export function buildScene3D(
       const isWindow = o.kind === "window";
       const sill = isWindow ? WINDOW_SILL : 0;
       const head = isWindow ? WINDOW_HEAD : DOOR_HEAD;
-      const color = isWindow ? palette.glass : palette.door;
+      // A vehicle door is a wide panelled product; a front door is a door.
+      const vehicle = !isWindow && o.widthFt >= 8;
+      const color = isWindow ? palette.glass : vehicle ? palette.garageDoor : palette.door;
       const t = WALL_T + 0.2; // slightly proud of the wall so it reads from both sides
       const kind = isWindow ? ("window" as const) : ("door" as const);
       const y = base + sill;
@@ -352,10 +413,23 @@ export function buildScene3D(
           boxes.push({ x: bx - 0.05, y, z: bz + bd, w: tt, h, d: TRIM, color: palette.trim, kind: "trim" });
           if (isWindow) boxes.push({ x: bx - 0.02, y, z: bz + bd / 2 - 0.06, w: tt, h, d: 0.12, color: palette.trim, kind: "trim" });
         }
+        if (vehicle) {
+          // Four raised panel courses, so a garage door reads as a door and
+          // not as a hole the width of two cars.
+          const courses = 4;
+          for (let i = 1; i < courses; i++) {
+            const yy = y + (i * h) / courses;
+            if (alongX) {
+              boxes.push({ x: bx, y: yy - 0.06, z: bz - 0.06, w: bw, h: 0.12, d: tt, color: shade(palette.garageDoor, 0.82), kind: "trim" });
+            } else {
+              boxes.push({ x: bx - 0.06, y: yy - 0.06, z: bz, w: tt, h: 0.12, d: bd, color: shade(palette.garageDoor, 0.82), kind: "trim" });
+            }
+          }
+        }
         if (!isWindow) {
           // A stoop under every exterior door.
-          if (alongX) boxes.push({ x: bx - 0.8, y: base - FLOOR_T, z: bz - 2.6, w: bw + 1.6, h: FLOOR_T + 0.15, d: 3, color: "#b9b4a8", kind: "stoop" });
-          else boxes.push({ x: bx - 2.6, y: base - FLOOR_T, z: bz - 0.8, w: 3, h: FLOOR_T + 0.15, d: bd + 1.6, color: "#b9b4a8", kind: "stoop" });
+          if (alongX) boxes.push({ x: bx - 0.8, y: base - FLOOR_T, z: bz - 2.6, w: bw + 1.6, h: FLOOR_T + 0.15, d: 3, color: "#c4bfb4", kind: "stoop" });
+          else boxes.push({ x: bx - 2.6, y: base - FLOOR_T, z: bz - 0.8, w: 3, h: FLOOR_T + 0.15, d: bd + 1.6, color: "#c4bfb4", kind: "stoop" });
         }
       };
       if (o.wall === "n") pushWithTrim(x + o.offsetFt, z - 0.1, o.widthFt, t, true);
@@ -376,18 +450,36 @@ export function buildScene3D(
   const baseY = model.levels * WALL_HEIGHT_FT;
 
   if (geom.wings.length > 0 && (geom.pitch <= 0 || roofRise(geom) < 0.2)) {
+    // A flat roof is a deck with an edge, not a plate resting on the walls.
+    // Drawn as a bare slab it floated: no fascia, no parapet, a foot of
+    // shadow all round and nothing to say where the building stopped.
+    const EAVE = 0.6;
+    const CAP = 0.45;
     for (const wing of geom.wings) {
       const [wx, wz, ww, wd] = wing.rect;
-      boxes.push({
-        x: wx - geom.overhangFt,
-        y: baseY,
-        z: wz - geom.overhangFt,
-        w: ww + geom.overhangFt * 2,
-        h: 1,
-        d: wd + geom.overhangFt * 2,
-        color: palette.roof,
-        kind: "slab",
-      });
+      const x = wx - EAVE;
+      const z = wz - EAVE;
+      const w = ww + EAVE * 2;
+      const d = wd + EAVE * 2;
+      boxes.push({ x, y: baseY, z, w, h: 0.9, d, color: palette.roof, kind: "slab" });
+      // A capped parapet, but only where the deck actually ends. Capping all
+      // four sides of every wing drew a white rail along each seam between
+      // them, so a roof came back looking ruled into lanes.
+      const abuts = (side: "n" | "s" | "e" | "w") =>
+        geom.wings.some((other) => {
+          if (other === wing) return false;
+          const [ox, oz, ow, od] = other.rect;
+          const overlapX = Math.min(wx + ww, ox + ow) - Math.max(wx, ox) > 0.1;
+          const overlapZ = Math.min(wz + wd, oz + od) - Math.max(wz, oz) > 0.1;
+          if (side === "n") return overlapX && Math.abs(oz + od - wz) < 1;
+          if (side === "s") return overlapX && Math.abs(oz - (wz + wd)) < 1;
+          if (side === "w") return overlapZ && Math.abs(ox + ow - wx) < 1;
+          return overlapZ && Math.abs(ox - (wx + ww)) < 1;
+        });
+      if (!abuts("n")) boxes.push({ x, y: baseY + 0.9, z, w, h: CAP, d: 0.55, color: palette.trim, kind: "trim" });
+      if (!abuts("s")) boxes.push({ x, y: baseY + 0.9, z: z + d - 0.55, w, h: CAP, d: 0.55, color: palette.trim, kind: "trim" });
+      if (!abuts("w")) boxes.push({ x, y: baseY + 0.9, z, w: 0.55, h: CAP, d, color: palette.trim, kind: "trim" });
+      if (!abuts("e")) boxes.push({ x: x + w - 0.55, y: baseY + 0.9, z, w: 0.55, h: CAP, d, color: palette.trim, kind: "trim" });
     }
   } else {
     // Facets arrive as world-space polygons; a wing's four of them become one
@@ -451,28 +543,54 @@ export function buildScene3D(
     // The driveway extends outward from whichever wall holds the garage
     // door — front-loaded, side-loaded, and alley-loaded garages all work.
     const [gx, gz, gw, gd] = garage.rect;
-    const doorWall = model.openings.find((o) => o.roomKey === garage.key && o.kind === "door")?.wall ?? "n";
-    if (doorWall === "n") boxes.push({ x: gx + 0.8, y: -0.34, z: gz - 22, w: gw - 1.6, h: 0.3, d: 22.2, color: "#a8a49c", kind: "drive" });
-    else if (doorWall === "s") boxes.push({ x: gx + 0.8, y: -0.34, z: gz + gd - 0.2, w: gw - 1.6, h: 0.3, d: 22.2, color: "#a8a49c", kind: "drive" });
-    else if (doorWall === "w") boxes.push({ x: gx - 22, y: -0.34, z: gz + 0.8, w: 22.2, h: 0.3, d: gd - 1.6, color: "#a8a49c", kind: "drive" });
-    else boxes.push({ x: gx + gw - 0.2, y: -0.34, z: gz + 0.8, w: 22.2, h: 0.3, d: gd - 1.6, color: "#a8a49c", kind: "drive" });
+    // The vehicle door, which is the wide one. Taking the first door found
+    // took the three-foot door into the house instead, and the driveway was
+    // laid out of the back wall into the garden.
+    const doorWall =
+      model.openings
+        .filter((o) => o.roomKey === garage.key && o.kind === "door")
+        .sort((a, b) => b.widthFt - a.widthFt)[0]?.wall ?? "n";
+    if (doorWall === "n") boxes.push({ x: gx + 0.8, y: -0.34, z: gz - 22, w: Math.min(gw - 1.6, 19), h: 0.3, d: 22.2, color: "#c9c5bc", kind: "drive" });
+    else if (doorWall === "s") boxes.push({ x: gx + 0.8, y: -0.34, z: gz + gd - 0.2, w: Math.min(gw - 1.6, 19), h: 0.3, d: 22.2, color: "#c9c5bc", kind: "drive" });
+    else if (doorWall === "w") boxes.push({ x: gx - 22, y: -0.34, z: gz + 0.8, w: 22.2, h: 0.3, d: Math.min(gd - 1.6, 19), color: "#c9c5bc", kind: "drive" });
+    else boxes.push({ x: gx + gw - 0.2, y: -0.34, z: gz + 0.8, w: 22.2, h: 0.3, d: Math.min(gd - 1.6, 19), color: "#c9c5bc", kind: "drive" });
   }
-  // Walkway to the entry: aim at a street-facing door if one exists,
-  // otherwise at the centre of the front porch or front-most living room.
+  // The walk to the front door, from the door itself rather than from the
+  // middle of whatever room sits nearest the street. On a garage-forward plan
+  // the entry is set back behind the garage, so the walk comes out of the
+  // door, clears the front of the house, and turns to meet the driveway —
+  // which is how you actually reach the door from a car.
   const frontDoor = model.openings.find((o) => {
-    if (o.kind !== "door" || o.wall !== "n") return false;
-    const room = ground.find((r) => r.key === o.roomKey && r.kind !== "garage");
-    return room ? Math.abs(room.rect[1] - frontZ) < 0.5 : false;
+    if (o.kind !== "door" || o.wall !== "n" || o.widthFt > 5) return false;
+    const room = ground.find((r) => r.key === o.roomKey);
+    return !!room && room.kind !== "garage";
   });
-  const frontRooms = ground.filter((r) => Math.abs(r.rect[1] - frontZ) < 0.5 && r.kind !== "garage");
-  const entryRoom = frontDoor
-    ? ground.find((r) => r.key === frontDoor.roomKey)!
-    : (frontRooms.find((r) => r.kind === "outdoor") ?? frontRooms.find((r) => r.kind === "living") ?? frontRooms[0]);
-  if (entryRoom) {
-    const px = frontDoor
-      ? entryRoom.rect[0] + frontDoor.offsetFt + frontDoor.widthFt / 2 - 2
-      : entryRoom.rect[0] + entryRoom.rect[2] / 2 - 2;
-    boxes.push({ x: px, y: -0.36, z: frontZ - 22, w: 4, h: 0.3, d: 22.2, color: "#b6b1a6", kind: "path" });
+  const entryRoom = frontDoor ? ground.find((r) => r.key === frontDoor.roomKey) : undefined;
+  const PATH_W = 4;
+  if (frontDoor && entryRoom) {
+    const doorX = entryRoom.rect[0] + frontDoor.offsetFt + frontDoor.widthFt / 2;
+    const doorZ = entryRoom.rect[1];
+    const apron = Math.min(doorZ - 3, frontZ - 4);
+    boxes.push({
+      x: doorX - PATH_W / 2,
+      y: -0.36,
+      z: apron,
+      w: PATH_W,
+      h: 0.3,
+      d: doorZ - apron,
+      color: "#cbc6bb",
+      kind: "path",
+    });
+    // The leg across the front, out to the drive when there is one and out to
+    // the street when there is not.
+    const target = garage ? garage.rect[0] + garage.rect[2] / 2 : doorX;
+    const from = Math.min(doorX - PATH_W / 2, target);
+    const to = Math.max(doorX + PATH_W / 2, target);
+    if (to - from > PATH_W) {
+      boxes.push({ x: from, y: -0.36, z: apron, w: to - from, h: 0.3, d: PATH_W, color: "#cbc6bb", kind: "path" });
+    } else {
+      boxes.push({ x: doorX - PATH_W / 2, y: -0.36, z: frontZ - 20, w: PATH_W, h: 0.3, d: apron - frontZ + 20, color: "#cbc6bb", kind: "path" });
+    }
   }
 
   const trees: Tree[] = [];
@@ -482,18 +600,55 @@ export function buildScene3D(
   const minGx = Math.min(...ground.map((r) => r.rect[0]));
   const maxGx = Math.max(...ground.map((r) => r.rect[0] + r.rect[2]));
   const maxGz = Math.max(...ground.map((r) => r.rect[1] + r.rect[3]));
-  for (let i = 0; i < 7; i++) {
-    const side = rand();
-    const tx = side < 0.4 ? minGx - 8 - rand() * 16 : side < 0.8 ? maxGx + 8 + rand() * 16 : minGx + rand() * (maxGx - minGx);
-    const tz = side < 0.8 ? frontZ - 6 + rand() * (maxGz - frontZ + 14) : maxGz + 8 + rand() * 12;
-    trees.push({ x: tx, z: tz, trunkH: 6 + rand() * 4, canopyR: 4.5 + rand() * 3 });
-  }
-  // Bushes along the front facade between openings.
-  for (const room of ground.filter((r) => Math.abs(r.rect[1] - frontZ) < 0.5 && r.kind !== "garage" && r.kind !== "outdoor")) {
-    const [rx, rz, rw] = room.rect;
-    const n = Math.max(1, Math.floor(rw / 9));
-    for (let i = 0; i < n; i++) {
-      bushes.push({ x: rx + ((i + 0.5) * rw) / n, z: rz - 2.2, r: 1.4 + rand() * 0.8 });
+  // Trees stand in the yard, not on the house and not in front of it.
+  //
+  // A fifth of them used to be seeded anywhere across the footprint's own
+  // x-range, so they grew up through the roof; the rest were scattered from
+  // six feet in front of the facade backwards, which put a fifteen-foot crown
+  // between the viewer and the front door. The default view of a house is the
+  // one from the street, and nothing should be standing in it.
+  const yardX = 10;
+  const plant = (x: number, z: number, scale: number) => {
+    trees.push({ x, z, trunkH: (7 + rand() * 4) * scale, canopyR: (4 + rand() * 2.4) * scale });
+  };
+  // Two flanking the house, well clear of the corners, and set back so they
+  // frame the elevation rather than cover it.
+  plant(minGx - yardX - rand() * 8, frontZ + (maxGz - frontZ) * (0.35 + rand() * 0.4), 1);
+  plant(maxGx + yardX + rand() * 8, frontZ + (maxGz - frontZ) * (0.35 + rand() * 0.4), 1);
+  // A pair behind the house, taller, so the roofline has something to sit
+  // against instead of ending in empty sky.
+  plant(minGx + rand() * (maxGx - minGx) * 0.4, maxGz + 14 + rand() * 14, 1.25);
+  plant(maxGx - rand() * (maxGx - minGx) * 0.4, maxGz + 16 + rand() * 14, 1.25);
+  // And two well out to the sides near the street, small enough to read as
+  // street trees and far enough apart to leave the frontage open.
+  plant(minGx - yardX - 12 - rand() * 10, frontZ - 16 - rand() * 10, 0.8);
+  plant(maxGx + yardX + 12 + rand() * 10, frontZ - 16 - rand() * 10, 0.8);
+  // Foundation planting along whatever actually faces the street.
+  //
+  // This used to look for rooms sitting on the front line of the plan and
+  // skip the garage, which on a garage-forward house is every room there is —
+  // so the commonest plan the generator makes got no planting at all. A wall
+  // is worth planting if it faces out and faces forward, whatever is behind
+  // it, and a garage wall beside its door is exactly where a shrub goes.
+  for (const room of ground) {
+    if (room.kind === "outdoor" || room.kind === "hallway") continue;
+    for (const run of exteriorRuns(room, ground, "n")) {
+      const [rx, rz] = room.rect;
+      const from = rx + run.from;
+      const to = rx + run.to;
+      // Not in front of a door — you have to be able to reach it.
+      const doors = model.openings.filter(
+        (o) => o.roomKey === room.key && o.wall === "n" && o.kind !== "window",
+      );
+      const n = Math.max(1, Math.floor((to - from) / 7));
+      for (let i = 0; i < n; i++) {
+        const x = from + ((i + 0.5) * (to - from)) / n;
+        const blocked = doors.some(
+          (o) => x > rx + o.offsetFt - 2 && x < rx + o.offsetFt + o.widthFt + 2,
+        );
+        if (blocked) continue;
+        bushes.push({ x, z: rz - 2.4, r: 1.3 + rand() * 0.9 });
+      }
     }
   }
 

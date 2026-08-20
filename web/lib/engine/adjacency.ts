@@ -68,3 +68,67 @@ export function roomsAdjacent(a: Room, b: Room, minRunFt = 0.2): boolean {
   const wall = sharedWall(a.rect, b.rect);
   return wall !== null && wall.to - wall.from > minRunFt;
 }
+
+/** Which face of a room a wall is: "n" faces the street, "s" the back. */
+export type WallSide = "n" | "s" | "e" | "w";
+
+export const WALL_SIDES: WallSide[] = ["n", "s", "e", "w"];
+
+/** How long a run of wall has to be before anything is worth putting in it. */
+export const MIN_OPENING_RUN_FT = 4;
+
+/**
+ * The stretches of one wall of a room that face outdoors.
+ *
+ * Every renderer and every drawing needs this and none of them had it. The
+ * generator put a window on each room's north wall on the theory that north
+ * was the street — true of the front row and of nothing else, so a plan came
+ * back with windows buried in the middle of the house and blank walls facing
+ * the garden. Measured against the rooms actually next to it, a wall knows
+ * which parts of itself are outside.
+ *
+ * Returned runs are in the wall's own coordinate: along x for the north and
+ * south faces, along z for east and west.
+ */
+export function exteriorRuns(
+  room: Room,
+  others: readonly Room[],
+  side: WallSide,
+  toleranceFt = ADJACENCY_TOLERANCE_FT,
+): { from: number; to: number }[] {
+  const [x, z, w, d] = room.rect;
+  const alongX = side === "n" || side === "s";
+  const start = alongX ? x : z;
+  const end = alongX ? x + w : z + d;
+  const face = side === "n" ? z : side === "s" ? z + d : side === "w" ? x : x + w;
+
+  // Anything on the far side of this face, close enough to be the other half
+  // of the same wall, takes its overlap out of the run.
+  const blocked: [number, number][] = [];
+  for (const other of others) {
+    if (other.key === room.key || other.level !== room.level) continue;
+    const [ox, oz, ow, od] = other.rect;
+    const against =
+      side === "n" ? Math.abs(oz + od - face) <= toleranceFt
+      : side === "s" ? Math.abs(oz - face) <= toleranceFt
+      : side === "w" ? Math.abs(ox + ow - face) <= toleranceFt
+      : Math.abs(ox - face) <= toleranceFt;
+    if (!against) continue;
+    const from = alongX ? Math.max(start, ox) : Math.max(start, oz);
+    const to = alongX ? Math.min(end, ox + ow) : Math.min(end, oz + od);
+    if (to > from) blocked.push([from, to]);
+  }
+
+  blocked.sort((a, b) => a[0] - b[0]);
+  const runs: { from: number; to: number }[] = [];
+  let cursor = start;
+  for (const [from, to] of blocked) {
+    if (from > cursor) runs.push({ from: cursor, to: from });
+    cursor = Math.max(cursor, to);
+  }
+  if (cursor < end) runs.push({ from: cursor, to: end });
+  // In the room's own coordinate, which is what an opening's offset is in.
+  return runs
+    .filter((run) => run.to - run.from >= MIN_OPENING_RUN_FT)
+    .map((run) => ({ from: run.from - start, to: run.to - start }));
+}

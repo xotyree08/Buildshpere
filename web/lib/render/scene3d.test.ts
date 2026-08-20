@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { roomsAdjacent } from "../engine/adjacency";
 import { generateConcepts } from "../engine/generate";
 import { WALL_HEIGHT_FT } from "../engine/iso";
 import type { DesignBrief } from "../types";
@@ -92,10 +93,22 @@ describe("architectural detail and landscaping", () => {
     const scene = buildScene3D(model, "craftsman");
     const drive = scene.boxes.find((b) => b.kind === "drive");
     expect(drive).toBeDefined();
-    // This plan's garage door faces the rear (alley access) — the drive
-    // must sit fully beyond the garage's rear wall, not inside the house.
+    // The drive runs out from the VEHICLE door, which is the wide one. Taking
+    // whichever door was found first took the three-foot door into the house
+    // and laid the driveway out of the back wall into the garden — and the
+    // test froze that in, asserting the garage was alley-loaded.
     const garage = model.rooms.find((r) => r.kind === "garage")!;
-    expect(drive!.z).toBeGreaterThanOrEqual(garage.rect[1] + garage.rect[3] - 0.5);
+    const [gx, gz, gw, gd] = garage.rect;
+    const bay = model.openings
+      .filter((o) => o.roomKey === garage.key && o.kind === "door")
+      .sort((a, b) => b.widthFt - a.widthFt)[0];
+    expect(bay.widthFt).toBeGreaterThanOrEqual(8);
+    const outward =
+      bay.wall === "n" ? drive!.z + drive!.d <= gz + 0.5
+      : bay.wall === "s" ? drive!.z >= gz + gd - 0.5
+      : bay.wall === "w" ? drive!.x + drive!.w <= gx + 0.5
+      : drive!.x >= gx + gw - 0.5;
+    expect(outward, `drive should run out of the ${bay.wall} wall`).toBe(true);
     expect(scene.boxes.some((b) => b.kind === "path")).toBe(true);
   });
 
@@ -109,22 +122,51 @@ describe("architectural detail and landscaping", () => {
           pz >= b.z - 0.01 && pz <= b.z + b.d + 0.01 &&
           y >= b.y - 0.01 && y <= b.y + b.h + 0.01,
       );
-    const door = model.openings.find((o) => o.kind === "door" && o.widthFt < 6)!;
+    // An interior door, on whichever wall it actually sits: a room is entered
+    // from the hallway it touches, and that is not always its south wall.
+    // Hunting for a south-wall door was reading the plan through the old
+    // generator's habit rather than through the plan.
+    const hall = model.rooms.find((r) => r.kind === "hallway")!;
+    const door = model.openings.find((o) => {
+      if (o.kind !== "door" || o.widthFt >= 6) return false;
+      const r = model.rooms.find((c) => c.key === o.roomKey);
+      return r ? roomsAdjacent(r, hall) : false;
+    })!;
     const room = model.rooms.find((r) => r.key === door.roomKey)!;
-    const [x, z, , d] = room.rect;
-    const midX = x + door.offsetFt + door.widthFt / 2;
-    expect(wallAt(midX, 4, z + d - 0.2)).toBe(false); // the room's own wall is open
-    expect(wallAt(midX, 7.5, z + d - 0.2)).toBe(true); // header above the door
-    expect(wallAt(midX, 4, z + d + 0.2)).toBe(false); // hallway's facing wall pierced
+    const [x, z, w, d] = room.rect;
+    const alongX = door.wall === "n" || door.wall === "s";
+    const mid = (alongX ? x : z) + door.offsetFt + door.widthFt / 2;
+    const face = door.wall === "n" ? z : door.wall === "s" ? z + d : door.wall === "w" ? x : x + w;
+    const inward = door.wall === "n" || door.wall === "w" ? 0.2 : -0.2;
+    const probe = (offset: number, y: number) =>
+      alongX ? wallAt(mid, y, face + offset) : wallAt(face + offset, y, mid);
+    expect(probe(inward, 4)).toBe(false); // the room's own wall is open
+    expect(probe(inward, 7.5)).toBe(true); // header above the door
+    expect(probe(-inward, 4)).toBe(false); // hallway's facing wall pierced
 
+    // Same for a window, and on whichever wall it is in — the first window in
+    // the plan is no longer guaranteed to be in a north wall.
     const win = model.openings.find((o) => o.kind === "window")!;
     const winRoom = model.rooms.find((r) => r.key === win.roomKey)!;
-    const wx = winRoom.rect[0] + win.offsetFt + win.widthFt / 2;
-    const wz = winRoom.rect[1] + 0.2;
-    expect(wallAt(wx, 1.5, wz)).toBe(true); // sill wall below the glass
-    expect(wallAt(wx, 5, wz)).toBe(false); // glass void
-    // Corner slivers stay solid.
-    expect(wallAt(winRoom.rect[0] + 0.1, 4, wz)).toBe(true);
+    const [wrx, wrz, wrw, wrd] = winRoom.rect;
+    const winAlongX = win.wall === "n" || win.wall === "s";
+    const winMid = (winAlongX ? wrx : wrz) + win.offsetFt + win.widthFt / 2;
+    const winFace = win.wall === "n" ? wrz : win.wall === "s" ? wrz + wrd : win.wall === "w" ? wrx : wrx + wrw;
+    const winIn = win.wall === "n" || win.wall === "w" ? 0.2 : -0.2;
+    const winProbe = (along: number, y: number) =>
+      winAlongX ? wallAt(along, y, winFace + winIn) : wallAt(winFace + winIn, y, along);
+    expect(winProbe(winMid, 1.5)).toBe(true); // sill wall below the glass
+    expect(winProbe(winMid, 5)).toBe(false); // glass void
+    // The wall is cut, not removed: somewhere along it, at the same height as
+    // the glass, there is still a pier. Probing the corner itself only worked
+    // while every window sat in the middle of a north wall — a run of outside
+    // wall can start at a corner, and then the corner is glass.
+    const span = winAlongX ? wrw : wrd;
+    const origin = winAlongX ? wrx : wrz;
+    const solid = Array.from({ length: 40 }, (_, i) => origin + ((i + 0.5) * span) / 40).filter((p) =>
+      winProbe(p, 5),
+    );
+    expect(solid.length).toBeGreaterThan(0);
   });
 
   it("interior doors render swung open, out of the wall plane", () => {

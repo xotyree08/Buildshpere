@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { DesignBrief, HomeStyle, ParametricModel, Room } from "../types";
+import { exteriorRuns } from "./adjacency";
 import { assembleModel, generateConcepts, type RoomSpec } from "./generate";
 import { takeoff } from "./estimate";
 import { GRID_FT as GRID, moveRoom } from "./edit";
@@ -319,6 +320,54 @@ describe("layout: a footprint a builder would recognize", () => {
         .reduce((s, r) => s + areaOf(r), 0);
       expect(halls / home).toBeLessThan(0.2);
       expect(halls).toBeGreaterThan(0);
+    }
+  });
+
+  it("every window is in a wall that faces outdoors, and every house has a way in", () => {
+    // The generator used to put every window on the room's north wall, on the
+    // theory that north is the street. True of the front row and of nothing
+    // else: plans came back with windows buried in interior partitions and
+    // every outside wall blank, and the 3D view of one was a shoebox.
+    for (const { model } of everyConcept()) {
+      for (let l = 0; l < model.levels; l++) {
+        const rooms = level(model, l);
+        for (const window of model.openings.filter((o) => o.kind === "window")) {
+          const room = rooms.find((r) => r.key === window.roomKey);
+          if (!room) continue;
+          const outside = exteriorRuns(room, rooms, window.wall);
+          const held = outside.some(
+            (run) => window.offsetFt >= run.from - 0.01 && window.offsetFt + window.widthFt <= run.to + 0.01,
+          );
+          expect(held, `${room.label} ${window.wall} @${window.offsetFt}`).toBe(true);
+        }
+      }
+      // Habitable rooms are lit. A bedroom with no window is not a bedroom.
+      const glazed = new Set(model.openings.filter((o) => o.kind === "window").map((o) => o.roomKey));
+      const dark = model.rooms.filter(
+        (r) => ["bedroom", "living"].includes(r.kind) && !glazed.has(r.key),
+      );
+      expect(dark.map((r) => r.label)).toEqual([]);
+
+      // A front door you can walk to, and a garage door you can drive into.
+      const ground = level(model, 0);
+      const front = model.openings.find((o) => {
+        if (o.kind !== "door" || o.widthFt > 5) return false;
+        const room = ground.find((r) => r.key === o.roomKey);
+        return !!room && room.kind !== "garage" && exteriorRuns(room, ground, o.wall).some(
+          (run) => o.offsetFt >= run.from - 0.01 && o.offsetFt + o.widthFt <= run.to + 0.01,
+        );
+      });
+      expect(front, "front door").toBeDefined();
+      for (const garage of ground.filter((r) => r.kind === "garage")) {
+        const bay = model.openings
+          .filter((o) => o.roomKey === garage.key && o.kind === "door")
+          .sort((a, b) => b.widthFt - a.widthFt)[0];
+        expect(bay.widthFt, "garage door").toBeGreaterThanOrEqual(8);
+        const held = exteriorRuns(garage, ground, bay.wall).some(
+          (run) => bay.offsetFt >= run.from - 0.01 && bay.offsetFt + bay.widthFt <= run.to + 0.01,
+        );
+        expect(held, "garage door faces outdoors").toBe(true);
+      }
     }
   });
 

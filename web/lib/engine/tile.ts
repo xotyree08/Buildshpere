@@ -37,6 +37,13 @@ export interface TileItem {
    * does not fit beside them.
    */
   minFt?: number;
+  /**
+   * This room has to reach an outside wall. A bedroom without one has no
+   * window and no way out of a fire; two plans in five came back with one,
+   * because nothing in the tiling cared where a cell landed as long as it was
+   * the right shape.
+   */
+  needsLight?: boolean;
   /** Placed inside this item's own cell, so they always end up together. */
   children?: TileItem[];
 }
@@ -44,6 +51,34 @@ export interface TileItem {
 export interface Tile {
   key: string;
   rect: Rect;
+}
+
+/**
+ * Which sides of a rectangle are the outside of the building.
+ *
+ * A zone's flanks are always outside walls; its front and back may be, or may
+ * face the corridor. Without being told, the tiler counted a cell against the
+ * corridor as daylit and went on landlocking bedrooms.
+ */
+export interface Edges {
+  n: boolean;
+  s: boolean;
+  e: boolean;
+  w: boolean;
+}
+
+const ALL_OPEN: Edges = { n: true, s: true, e: true, w: true };
+
+/** The sides of `cell` that are on the outside, given its parent's. */
+function edgesOf(cell: Rect, rect: Rect, edges: Edges): Edges {
+  const [cx, cz, cw, cd] = cell;
+  const [rx, rz, rw, rd] = rect;
+  return {
+    n: edges.n && cz <= rz + 0.01,
+    s: edges.s && cz + cd >= rz + rd - 0.01,
+    w: edges.w && cx <= rx + 0.01,
+    e: edges.e && cx + cw >= rx + rw - 0.01,
+  };
 }
 
 export function itemArea(item: TileItem): number {
@@ -98,7 +133,7 @@ function rowWorst(row: TileItem[], side: number, along: "x" | "z"): number {
  * slivers, and a row stops growing at the point where taking one more room
  * would make the worst room in it worse.
  */
-function squarify(items: TileItem[], rect: Rect, flip = false, forceFirst = 0): Tile[] {
+function squarify(items: TileItem[], rect: Rect, edges: Edges, flip = false, forceFirst = 0): Tile[] {
   const out: Tile[] = [];
   // Squarify depends on its input being sorted largest first: fed in
   // programme order it makes good cells for the first rooms and slivers for
@@ -112,7 +147,7 @@ function squarify(items: TileItem[], rect: Rect, flip = false, forceFirst = 0): 
 
   while (remaining.length > 0 && w > 0 && d > 0) {
     if (remaining.length === 1) {
-      out.push(...emit(remaining[0], [x, z, w, d]));
+      out.push(...emit(remaining[0], [x, z, w, d], rect, edges));
       break;
     }
     // Rows normally run along the shorter side, which is what keeps cells
@@ -187,7 +222,7 @@ function squarify(items: TileItem[], rect: Rect, flip = false, forceFirst = 0): 
     for (const item of row) {
       const run = itemArea(item) / thickness;
       const cell: Rect = along === "x" ? [cursor, z, run, thickness] : [x, cursor, thickness, run];
-      out.push(...emit(item, cell));
+      out.push(...emit(item, cell, rect, edges));
       cursor += run;
     }
     if (along === "x") {
@@ -201,19 +236,24 @@ function squarify(items: TileItem[], rect: Rect, flip = false, forceFirst = 0): 
   return out;
 }
 
-function emit(item: TileItem, rect: Rect): Tile[] {
-  if (item.children && item.children.length > 0) return tile(item.children, rect);
-  return [{ key: item.key, rect }];
+function emit(item: TileItem, cell: Rect, rect: Rect, edges: Edges): Tile[] {
+  if (item.children && item.children.length > 0) return tile(item.children, cell, edgesOf(cell, rect, edges));
+  return [{ key: item.key, rect: cell }];
 }
 
 /** Every leaf's target proportion, by key. */
 function targetsOf(
   items: TileItem[],
-  into = new Map<string, { aspect: number; minFt: number }>(),
-): Map<string, { aspect: number; minFt: number }> {
+  into = new Map<string, { aspect: number; minFt: number; needsLight: boolean }>(),
+): Map<string, { aspect: number; minFt: number; needsLight: boolean }> {
   for (const item of items) {
     if (item.children && item.children.length > 0) targetsOf(item.children, into);
-    else into.set(item.key, { aspect: item.aspect, minFt: item.minFt ?? MIN_CELL_FT });
+    else
+      into.set(item.key, {
+        aspect: item.aspect,
+        minFt: item.minFt ?? MIN_CELL_FT,
+        needsLight: item.needsLight === true,
+      });
   }
   return into;
 }
@@ -226,7 +266,12 @@ function targetsOf(
  * recursion later, which is why every fix for one sliver produced another
  * somewhere else.
  */
-function scoreTiles(tiles: Tile[], targets: Map<string, { aspect: number; minFt: number }>): number {
+function scoreTiles(
+  tiles: Tile[],
+  targets: Map<string, { aspect: number; minFt: number; needsLight: boolean }>,
+  rect: Rect,
+  edges: Edges,
+): number {
   // Summed, not maxed. Scoring on the worst cell alone made the comparison
   // blind: if every candidate had the same worst room — a powder room, say —
   // they all scored identically and nothing else in the plan could break the
@@ -238,7 +283,18 @@ function scoreTiles(tiles: Tile[], targets: Map<string, { aspect: number; minFt:
     const narrowest = Math.min(w, d);
     const floor = want?.minFt ?? MIN_CELL_FT;
     const penalty = narrowest >= floor ? 1 : 10 * (floor / Math.max(narrowest, 0.1));
-    const off = distortion(w / d, want?.aspect ?? 1) * penalty;
+    // A room that needs an outside wall and does not reach one is not merely
+    // badly proportioned. Landlocking it is a fault of a different kind, so
+    // it is scored like one.
+    const [rx, rz, rw, rd] = rect;
+    const [px, pz] = placed.rect;
+    const outside =
+      (edges.w && px <= rx + 0.01) ||
+      (edges.n && pz <= rz + 0.01) ||
+      (edges.e && px + w >= rx + rw - 0.01) ||
+      (edges.s && pz + d >= rz + rd - 0.01);
+    const dark = want?.needsLight && !outside ? 5 : 1;
+    const off = distortion(w / d, want?.aspect ?? 1) * penalty * dark;
     total += off * off;
   }
   return total;
@@ -251,10 +307,10 @@ function scoreTiles(tiles: Tile[], targets: Map<string, { aspect: number; minFt:
  * proportions when the areas are lopsided. Neither wins everywhere, so both
  * are tried.
  */
-function bisect(items: TileItem[], rect: Rect, flip = false): Tile[] {
+function bisect(items: TileItem[], rect: Rect, edges: Edges, flip = false): Tile[] {
   const live = items.filter((item) => itemArea(item) > 0);
   if (live.length === 0) return [];
-  if (live.length === 1) return emit(live[0], rect);
+  if (live.length === 1) return emit(live[0], rect, rect, edges);
 
   const sorted = [...live].sort((a, b) => itemArea(b) - itemArea(a) || a.key.localeCompare(b.key));
   const total = sorted.reduce((sum, item) => sum + itemArea(item), 0);
@@ -271,17 +327,23 @@ function bisect(items: TileItem[], rect: Rect, flip = false): Tile[] {
   const [x, z, w, d] = rect;
   if (flip ? w < d : w >= d) {
     const wa = (w * headArea) / total;
-    return [...bisect(head, [x, z, wa, d], flip), ...bisect(tail, [x + wa, z, w - wa, d], flip)];
+    return [
+      ...bisect(head, [x, z, wa, d], edgesOf([x, z, wa, d], rect, edges), flip),
+      ...bisect(tail, [x + wa, z, w - wa, d], edgesOf([x + wa, z, w - wa, d], rect, edges), flip),
+    ];
   }
   const da = (d * headArea) / total;
-  return [...bisect(head, [x, z, w, da], flip), ...bisect(tail, [x, z + da, w, d - da], flip)];
+  return [
+    ...bisect(head, [x, z, w, da], edgesOf([x, z, w, da], rect, edges), flip),
+    ...bisect(tail, [x, z + da, w, d - da], edgesOf([x, z + da, w, d - da], rect, edges), flip),
+  ];
 }
 
 /**
  * Tile `rect` with `items`, taking whichever strategy leaves the worst room
  * least badly off.
  */
-export function tile(items: TileItem[], rect: Rect): Tile[] {
+export function tile(items: TileItem[], rect: Rect, edges: Edges = ALL_OPEN): Tile[] {
   const targets = targetsOf(items);
   let best: Tile[] | null = null;
   let bestScore = Infinity;
@@ -289,22 +351,42 @@ export function tile(items: TileItem[], rect: Rect): Tile[] {
   // history fixed the case in front of it and broke another somewhere else;
   // searching a handful of genuinely different arrangements and keeping the
   // one that scores best is what stops that, and it costs microseconds.
-  const reversed = [...items].reverse();
-  const strategies = [
-    squarify(items, rect),
-    squarify(items, rect, true),
-    squarify(reversed, rect),
-    squarify(reversed, rect, true),
-    bisect(items, rect),
-    bisect(items, rect, true),
-    bisect(reversed, rect),
-    bisect(reversed, rect, true),
+  const base = [
+    squarify(items, rect, edges),
+    squarify(items, rect, edges, true),
+    bisect(items, rect, edges),
+    bisect(items, rect, edges, true),
   ];
   for (let k = 1; k <= Math.min(4, items.length); k++) {
-    strategies.push(squarify(items, rect, false, k), squarify(items, rect, true, k));
+    base.push(squarify(items, rect, edges, false, k), squarify(items, rect, edges, true, k));
   }
+  // Every arrangement, and its reflections.
+  //
+  // Feeding the items in reversed order used to be four of these candidates,
+  // and it did nothing at all: squarify sorts largest-first on the way in, so
+  // reversing the list produced the identical tiling. That left the largest
+  // room always at the near corner and no way to put it at the far one —
+  // which is why a bedroom could not be moved out to the wall it needed.
+  // Mirroring a finished tiling is free and actually reaches those layouts.
+  const [rx, rz, rw, rd] = rect;
+  const mirror = (tiles: Tile[], x: boolean, z: boolean): Tile[] =>
+    tiles.map((t) => ({
+      key: t.key,
+      rect: [
+        x ? rx + rw - (t.rect[0] - rx) - t.rect[2] : t.rect[0],
+        z ? rz + rd - (t.rect[1] - rz) - t.rect[3] : t.rect[1],
+        t.rect[2],
+        t.rect[3],
+      ] as Rect,
+    }));
+  const strategies = base.flatMap((tiles) => [
+    tiles,
+    mirror(tiles, true, false),
+    mirror(tiles, false, true),
+    mirror(tiles, true, true),
+  ]);
   for (const candidate of strategies) {
-    const score = scoreTiles(candidate, targets);
+    const score = scoreTiles(candidate, targets, rect, edges);
     if (score < bestScore) {
       bestScore = score;
       best = candidate;

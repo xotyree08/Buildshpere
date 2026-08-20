@@ -16,9 +16,21 @@ function canvas(size: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   return [c, c.getContext("2d")!];
 }
 
+/**
+ * Vary a colour the way a real surface varies: mostly in brightness.
+ *
+ * Moving each channel independently is what turned a charcoal roof into
+ * purple-and-green confetti — at ±34 per channel a dark base has nowhere to
+ * go but sideways in hue, and the roof read as a mosaic rather than shingles.
+ * A shingle differs from its neighbour in how much light it takes, with only
+ * a little drift in colour, so the swing is shared across the channels and
+ * only a fraction of it is per-channel.
+ */
 function jitter(hex: string, amount: number, r: () => number): string {
   const n = parseInt(hex.slice(1), 16);
-  const ch = (v: number) => Math.max(0, Math.min(255, Math.round(v + (r() - 0.5) * amount)));
+  const common = (r() - 0.5) * amount;
+  const ch = (v: number) =>
+    Math.max(0, Math.min(255, Math.round(v + common + (r() - 0.5) * amount * 0.18)));
   return `rgb(${ch((n >> 16) & 255)},${ch((n >> 8) & 255)},${ch(n & 255)})`;
 }
 

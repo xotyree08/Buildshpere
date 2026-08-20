@@ -96,16 +96,25 @@ export function Viewer3D({
     mount.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.fog = new THREE.Fog(0xdce9f2, radius * 6, radius * 14);
+    // Haze starts well past the house. Beginning it at six radii put the far
+    // lawn and the horizon into the same flat wash, so the ground ran out into
+    // white paper a hundred feet behind the roof.
+    scene.fog = new THREE.Fog(0xdce9f2, radius * 12, radius * 34);
 
-    const camera = new THREE.PerspectiveCamera(mode === "walk" ? 65 : 42, 1, 0.2, radius * 30);
-    camera.position.set(cx - radius * 0.85, h * 0.5 + radius * 0.45, cz - radius * 1.15);
+    const camera = new THREE.PerspectiveCamera(mode === "walk" ? 65 : 40, 1, 0.2, radius * 60);
+    // The view a house is photographed from: off one front corner, from about
+    // the height of a first-floor window, far enough back that the whole
+    // elevation and its roof sit inside the frame with air around them.
+    camera.position.set(cx + w * 0.62, h * 0.8 + 8, cz - d * 0.62 - h * 1.5);
 
     // Sky dome + analytic lights only. The PMREM environment-map path
     // renders BLACK on more real-world GPUs than it works on (SwiftShader,
     // llvmpipe, and iOS Safari all failed it in testing) — the analytic
     // setup below is proven correct everywhere and looks nearly as good.
-    const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(52), THREE.MathUtils.degToRad(-140));
+    // Mid-afternoon, over the viewer's right shoulder. The old angle put the
+    // sun behind the house from the default camera, so the two faces you
+    // actually see were both in shade and every window read as a black hole.
+    const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(46), THREE.MathUtils.degToRad(132));
     scene.background = new THREE.Color(0xcfe3f2);
     const sky = new Sky();
     sky.scale.setScalar(radius * 25);
@@ -139,7 +148,11 @@ export function Viewer3D({
 
     // Ground: textured lawn.
     const grass = track(grassTexture());
-    grass.repeat.set(radius / 2, radius / 2);
+    // One tile every twelve feet. At one every two the lawn read as graph
+    // paper from the default camera — the eye finds a repeat long before it
+    // finds a blade of grass.
+    grass.repeat.set(radius / 12, radius / 12);
+    grass.anisotropy = 8;
     const ground = new THREE.Mesh(
       track(new THREE.CircleGeometry(radius * 8, 48)),
       track(new THREE.MeshStandardMaterial({ map: grass, roughness: 1 })),
@@ -154,7 +167,7 @@ export function Viewer3D({
     const wallBump = track(clapboardBump());
     const roofTex = track(roofTextureFor(palette));
     const roofBump = track(shingleBump());
-    const driveTex = track(concreteTexture("#a8a49c"));
+    const driveTex = track(concreteTexture("#c9c5bc"));
     const plasterTex = track(plasterTexture("#efece4"));
     const floorMats = new Map<string, THREE.MeshStandardMaterial>();
     // Wood in living spaces, tile where the palette paints a cool wet-room
@@ -169,8 +182,18 @@ export function Viewer3D({
       }
       return floorMats.get(color)!;
     };
+    // Glass catches the sky. At 62% opacity over a dark interior every window
+    // read as a hole punched in the siding; a real pane is mostly reflection
+    // from outside, so it is brighter, glossier, and barely see-through.
     const glassMat = track(
-      new THREE.MeshStandardMaterial({ color: 0xbfd9e8, roughness: 0.08, metalness: 0.4, transparent: true, opacity: 0.62 }),
+      new THREE.MeshStandardMaterial({
+        color: 0xdcecf7,
+        roughness: 0.05,
+        metalness: 0.15,
+        envMapIntensity: 1.4,
+        transparent: true,
+        opacity: 0.86,
+      }),
     );
     const plainMats = new Map<string, THREE.MeshStandardMaterial>();
     const plain = (color: string, roughness = 0.85) => {
@@ -215,7 +238,10 @@ export function Viewer3D({
         return m;
       }
       if (box.kind === "drive" || box.kind === "path" || box.kind === "stoop") {
-        const m = track(new THREE.MeshStandardMaterial({ map: driveTex.clone(), roughness: 0.95, color: box.color }));
+        // The map is already the paving's colour. Tinting the material with
+        // the same colour on top of it multiplied one two-thirds grey by
+        // another and turned a concrete driveway into wet asphalt.
+        const m = track(new THREE.MeshStandardMaterial({ map: driveTex.clone(), roughness: 0.95 }));
         (m.map as THREE.Texture).repeat.set(Math.max(box.w, 1) / TILE_FT, Math.max(box.d, 1) / TILE_FT);
         (m.map as THREE.Texture).needsUpdate = true;
         track(m.map as THREE.Texture);
@@ -323,7 +349,7 @@ export function Viewer3D({
 
     if (mode === "orbit") {
       controls = new OrbitControls(camera, renderer.domElement);
-      controls.target.set(cx, h / 2.8, cz);
+      controls.target.set(cx, h * 0.42, cz);
       controls.enableDamping = true;
       controls.maxPolarAngle = Math.PI / 2 - 0.03;
       controls.minDistance = radius * 0.3;
