@@ -42,14 +42,74 @@ function isBrowser(): boolean {
   return typeof window !== "undefined";
 }
 
-export function loadProjects(): StoredProject[] {
-  if (!isBrowser()) return [];
+/**
+ * What came back from storage, including what did not.
+ *
+ * `error` is set when the store could not be read at all. `unreadable` holds
+ * entries that parsed as JSON but are not projects — kept, not discarded, so a
+ * later write can put them back exactly as they were found.
+ */
+export interface StoredRead {
+  projects: StoredProject[];
+  unreadable: unknown[];
+  error: string | null;
+}
+
+/** The least that has to be true for an entry to be a project we can act on. */
+function isStoredProject(value: unknown): value is StoredProject {
+  if (typeof value !== "object" || value === null) return false;
+  const project = (value as { project?: unknown }).project;
+  if (typeof project !== "object" || project === null) return false;
+  return typeof (project as { id?: unknown }).id === "string";
+}
+
+/**
+ * Read the store, and say so when it cannot be read.
+ *
+ * This used to be a cast inside a catch that returned an empty array, which
+ * made a corrupt store indistinguishable from a new user. That would be merely
+ * confusing if reading were all it did — but saveProject and deleteProject are
+ * read-modify-write on top of this, so a failed read made saveProject overwrite
+ * every project with the one being saved, and made deleting one project write
+ * an empty array over all of them. Both reported success. LESSONS_LEARNED L2
+ * says a failed write must never look like a successful one, and cites this
+ * file; the failure was arriving through the read.
+ */
+export function readProjects(): StoredRead {
+  const empty: StoredRead = { projects: [], unreadable: [], error: null };
+  if (!isBrowser()) return empty;
+  let raw: string | null;
   try {
-    const raw = window.localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as StoredProject[]) : [];
+    raw = window.localStorage.getItem(KEY);
   } catch {
-    return [];
+    return { ...empty, error: "This browser blocked access to local storage." };
   }
+  if (!raw) return empty;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { ...empty, error: "Saved projects could not be read — the stored data is damaged." };
+  }
+  if (!Array.isArray(parsed)) {
+    return { ...empty, error: "Saved projects could not be read — the stored data is not a project list." };
+  }
+
+  // One bad entry loses one entry, not the whole store, and the bad entry is
+  // carried rather than dropped: bytes nobody can read today may still be
+  // readable by someone tomorrow, and they are not ours to throw away.
+  const projects: StoredProject[] = [];
+  const unreadable: unknown[] = [];
+  for (const entry of parsed) {
+    if (isStoredProject(entry)) projects.push(entry);
+    else unreadable.push(entry);
+  }
+  return { projects, unreadable, error: null };
+}
+
+export function loadProjects(): StoredProject[] {
+  return readProjects().projects;
 }
 
 export function loadProject(id: string): StoredProject | null {
@@ -76,16 +136,21 @@ export function shedPhotos(projects: StoredProject[]): StoredProject[] {
  */
 export function saveProject(entry: StoredProject): SaveResult {
   if (!isBrowser()) return { ok: false, error: "Storage is unavailable outside the browser." };
+  // Refuse rather than clobber. This is a read-modify-write, and if the read
+  // failed the modify half is built on nothing — writing it would replace every
+  // stored project with this one.
+  const read = readProjects();
+  if (read.error) return { ok: false, error: `${read.error} Nothing was overwritten.` };
   entry.savedAt = Date.now();
-  const all = loadProjects().filter((p) => p.project.id !== entry.project.id);
+  const all = read.projects.filter((p) => p.project.id !== entry.project.id);
   all.unshift(entry);
   try {
-    window.localStorage.setItem(KEY, JSON.stringify(all));
+    window.localStorage.setItem(KEY, JSON.stringify([...all, ...read.unreadable]));
     return { ok: true };
   } catch {
     // Quota exceeded — retry without the heavy photo payloads.
     try {
-      window.localStorage.setItem(KEY, JSON.stringify(shedPhotos(all)));
+      window.localStorage.setItem(KEY, JSON.stringify([...shedPhotos(all), ...read.unreadable]));
       return {
         ok: true,
         warning:
@@ -101,9 +166,19 @@ export function saveProject(entry: StoredProject): SaveResult {
   }
 }
 
-export function deleteProject(id: string): void {
-  if (!isBrowser()) return;
-  window.localStorage.setItem(KEY, JSON.stringify(loadProjects().filter((p) => p.project.id !== id)));
+export function deleteProject(id: string): SaveResult {
+  if (!isBrowser()) return { ok: false, error: "Storage is unavailable outside the browser." };
+  // The most destructive path in the file: deleting one project on top of a
+  // failed read wrote an empty array over every project the user had.
+  const read = readProjects();
+  if (read.error) return { ok: false, error: `${read.error} Nothing was deleted.` };
+  const kept = read.projects.filter((p) => p.project.id !== id);
+  try {
+    window.localStorage.setItem(KEY, JSON.stringify([...kept, ...read.unreadable]));
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "This browser's local storage could not be written — the project was not deleted." };
+  }
 }
 
 /** Replace the whole local set (used by sync after a merge). */
