@@ -78,7 +78,7 @@ interface Envelope {
 function envelope(model: ParametricModel, windowKey: string): Envelope {
   const q = takeoff(model);
   const windowArea = q.windows * WINDOW_SQFT;
-  const grossWallArea = q.wallLf * 9;
+  const grossWallArea = q.exteriorWallGrossSqft;
   const wallArea = Math.max(0, grossWallArea - windowArea);
   // The thermal roof is the CEILING plane over conditioned space, not the
   // sloped surface: in a vented attic the insulation sits flat on the ceiling,
