@@ -284,6 +284,31 @@ create table if not exists mfa_recovery_codes (
 );
 create index if not exists markup_issues_project on markup_issues(project_id)`,
   },
+  {
+    id: "0008-marketplace",
+    sql: `alter table professional_profiles add column listed boolean not null default false;
+create table if not exists quote_requests (
+  id text primary key,
+  project_id text not null,
+  owner_id text not null,
+  discipline text not null,
+  scope text not null,
+  status text not null,
+  created_at timestamp not null
+);
+create index if not exists quote_requests_owner on quote_requests(owner_id);
+create table if not exists proposals (
+  id text primary key,
+  request_id text not null,
+  professional_id text not null,
+  fee_cents integer not null,
+  timeline_days integer not null,
+  note text not null,
+  status text not null,
+  created_at timestamp not null
+);
+create index if not exists proposals_request on proposals(request_id)`,
+  },
 ];
 
 const LEDGER_SQL = `create table if not exists schema_migrations (
