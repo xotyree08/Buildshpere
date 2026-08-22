@@ -251,6 +251,21 @@ create index if not exists org_members_user on org_members(user_id)`,
     id: "0005-projects-org",
     sql: "alter table projects add column org_id text",
   },
+  {
+    id: "0006-mfa",
+    sql: `create table if not exists user_mfa (
+  user_id text primary key,
+  secret text not null,
+  confirmed_at timestamp,
+  created_at timestamp not null
+);
+create table if not exists mfa_recovery_codes (
+  user_id text not null,
+  code_hash text not null,
+  used_at timestamp,
+  primary key (user_id, code_hash)
+)`,
+  },
 ];
 
 const LEDGER_SQL = `create table if not exists schema_migrations (
