@@ -24,7 +24,7 @@ const RENDER = join(__dirname, "..", "render");
 const TIERS: { tier: number; name: string; modules: string[] }[] = [
   { tier: 0, name: "building data", modules: ["ids", "adjacency", "assemblies", "units"] },
   { tier: 1, name: "geometry", modules: ["tile", "generate", "walls", "openings", "roofgeom", "iso", "elevation", "edit", "revise", "site", "sitefit", "interiors", "roof"] },
-  { tier: 2, name: "constraints", modules: ["checks", "permit", "revisionscope"] },
+  { tier: 2, name: "constraints", modules: ["checks", "permit", "jurisdiction", "revisionscope"] },
   { tier: 3, name: "quantities", modules: ["plumbing", "electrical", "walkthrough", "maintenance"] },
   // `energy` sits here rather than with the quantities because half of what it
   // does is a payback period — cost delta over annual saving — and that is a
