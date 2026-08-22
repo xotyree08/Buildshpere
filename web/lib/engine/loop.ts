@@ -15,6 +15,7 @@ import type {
 import { generateConcepts } from "./generate";
 import { runChecks } from "./checks";
 import { estimateRevision, valueEngineering, type EstimateFinishes } from "./estimate";
+import { repackWithout } from "./repack";
 import { applyRevision, parseRevisionRequest, type RevisionOp } from "./revise";
 import { buildableDepthFt, buildableWidthFt, sanitizeSetbacks, type SetbackRules } from "./site";
 import type { FinishSelections } from "../catalog/materials";
@@ -76,7 +77,7 @@ export function runDesignLoop(brief: DesignBrief, opts: LoopOptions): ConceptPac
       healthScore: health.score,
       checkResults: health.results,
       estimate,
-      veSuggestions: valueEngineering(estimate, opts.budgetCents, concept.model, finishes),
+      veSuggestions: valueEngineering(estimate, opts.budgetCents, concept.model, finishes, repackWithout),
     };
   });
 }
@@ -94,13 +95,13 @@ export function repriceConceptPackage(
   return {
     ...pkg,
     estimate: baseEstimate,
-    veSuggestions: valueEngineering(baseEstimate, opts.budgetCents, pkg.concept.model, finishes),
+    veSuggestions: valueEngineering(baseEstimate, opts.budgetCents, pkg.concept.model, finishes, repackWithout),
     revisions: (pkg.revisions ?? []).map((rev) => {
       const estimate = estimateRevision(rev.revision.model, rev.revision.id, opts.regionCode, finishes);
       return {
         ...rev,
         estimate,
-        veSuggestions: valueEngineering(estimate, opts.budgetCents, rev.revision.model, finishes),
+        veSuggestions: valueEngineering(estimate, opts.budgetCents, rev.revision.model, finishes, repackWithout),
       };
     }),
   };
@@ -199,7 +200,7 @@ export function commitLayoutEdit(
     healthScore: health.score,
     checkResults: health.results,
     estimate,
-    veSuggestions: valueEngineering(estimate, opts.budgetCents, model, finishes),
+    veSuggestions: valueEngineering(estimate, opts.budgetCents, model, finishes, repackWithout),
     rejected: [],
   };
 }
@@ -264,7 +265,7 @@ export function applyOpsToConceptPackage(
       healthScore: health.score,
       checkResults: health.results,
       estimate,
-      veSuggestions: valueEngineering(estimate, opts.budgetCents, model, finishes),
+      veSuggestions: valueEngineering(estimate, opts.budgetCents, model, finishes, repackWithout),
       rejected,
     },
     unrecognized,

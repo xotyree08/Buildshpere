@@ -4,6 +4,7 @@ import type { DesignBrief } from "../types";
 import { generateConcepts, VARIANTS } from "./generate";
 import { runChecks } from "./checks";
 import { estimateRevision, takeoff, valueEngineering } from "./estimate";
+import { repackWithout } from "./repack";
 import { freezeMilestone, frozenFloor, reviseConceptPackage, rollbackConcept, runDesignLoop } from "./loop";
 
 const brief: DesignBrief = {
@@ -179,7 +180,7 @@ describe("valueEngineering", () => {
   it("proposes ranked savings when over budget", () => {
     const [concept] = generateConcepts(brief, 60);
     const est = estimateRevision(concept.model, "rev-1");
-    const suggestions = valueEngineering(est, Math.round(est.totalCents * 0.8), concept.model);
+    const suggestions = valueEngineering(est, Math.round(est.totalCents * 0.8), concept.model, {}, repackWithout);
     expect(suggestions.length).toBeGreaterThanOrEqual(3);
     for (let i = 1; i < suggestions.length; i++) {
       expect(suggestions[i - 1].savingsCents).toBeGreaterThanOrEqual(suggestions[i].savingsCents);
