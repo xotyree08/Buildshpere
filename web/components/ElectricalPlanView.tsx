@@ -1,3 +1,4 @@
+import { ANNOTATION_FT, labelFits, labelSize } from "@/lib/render/planlabel";
 import { buildElectricalPlan, type Device } from "@/lib/engine/electrical";
 import type { ParametricModel } from "@/lib/types";
 
@@ -90,8 +91,27 @@ export function ElectricalPlanView({ model, level }: { model: ParametricModel; l
           return (
             <g key={room.key}>
               <rect x={x} y={y} width={w} height={d} fill="var(--card)" stroke="var(--fg)" strokeWidth={0.3} />
-              {w > 8 && d > 5 && (
-                <text x={x + 1} y={y + 1.8} fontSize={1.5} fill="var(--muted)">
+              {/* Same fit rule as the floor plans, but as a caption rather than
+                  a title, and at the foot of the room. A flat 1.5ft of type
+                  past a crude size gate ran "Dining Room" through its own wall;
+                  the plumbing fixtures sit in a band along the top of each
+                  room, so a name anchored there landed on top of them either
+                  way. Clear of the wall line too — electrical devices ring the
+                  whole perimeter, and a caption on the wall sat under them.
+                  The halo is why it stays readable wherever it lands: no one
+                  baseline clears every symbol, since devices ring the walls,
+                  fixtures hang in the middle, and a shallow bath has nowhere
+                  that is clear of both. */}
+              {labelFits(room.label, w - 2, d, ANNOTATION_FT) && (
+                <text
+                  x={x + 1}
+                  y={y + d - 1.6}
+                  fontSize={labelSize(room.label, w - 2, ANNOTATION_FT)}
+                  fill="var(--muted)"
+                  stroke="var(--card)"
+                  strokeWidth={0.42}
+                  paintOrder="stroke"
+                >
                   {room.label}
                 </text>
               )}

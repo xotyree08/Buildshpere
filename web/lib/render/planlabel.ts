@@ -22,14 +22,22 @@
  */
 const CHAR_WIDTH = 0.6;
 
-/** Largest readable size at which `label` still fits inside `widthFt`. */
-export function labelSize(label: string, widthFt: number): number {
-  return Math.max(1.1, Math.min(2.4, widthFt / 6, (widthFt * 0.92) / (label.length * CHAR_WIDTH)));
+/**
+ * Largest readable size at which `label` still fits inside `widthFt`.
+ *
+ * `maxFt` is the ceiling. It defaults to the floor plans' 2.4ft, where the
+ * room name is the drawing's main content. The coordination drawings pass
+ * something smaller: on an electrical or plumbing plan the name is an
+ * annotation competing with symbols, and letting it grow to title size made
+ * "Living Room" shout over the very fixtures the sheet exists to locate.
+ */
+export function labelSize(label: string, widthFt: number, maxFt = 2.4): number {
+  return Math.max(1.1, Math.min(maxFt, widthFt / 6, (widthFt * 0.92) / (label.length * CHAR_WIDTH)));
 }
 
 /** Whether the label fits at all — below 1.1ft of type it is not worth drawing. */
-export function fitsLabel(label: string, widthFt: number): boolean {
-  return label.length * CHAR_WIDTH * labelSize(label, widthFt) <= widthFt;
+export function fitsLabel(label: string, widthFt: number, maxFt = 2.4): boolean {
+  return label.length * CHAR_WIDTH * labelSize(label, widthFt, maxFt) <= widthFt;
 }
 
 /**
@@ -37,6 +45,12 @@ export function fitsLabel(label: string, widthFt: number): boolean {
  * is `fitsLabel`'s, and gating on width too dropped names from rooms that
  * would have carried them perfectly well at a smaller size.
  */
-export function labelFits(label: string, widthFt: number, depthFt: number): boolean {
-  return depthFt > 4 && fitsLabel(label, widthFt);
+export function labelFits(label: string, widthFt: number, depthFt: number, maxFt = 2.4): boolean {
+  return depthFt > 4 && fitsLabel(label, widthFt, maxFt);
 }
+
+/**
+ * Type size for a room name on a coordination drawing, where the symbols are
+ * the point and the name is a caption.
+ */
+export const ANNOTATION_FT = 1.3;
