@@ -45,12 +45,24 @@ function mulberry32(seed: number): () => number {
   };
 }
 
+/**
+ * Anisotropic filtering budget. Ground and roof planes are seen at grazing
+ * angles, where isotropic mipmapping smears them into mush — the single
+ * cheapest realism win available. The viewer raises this to the GPU maximum
+ * before building any texture; 4 is the floor for anything that asks early.
+ */
+let maxAnisotropy = 4;
+
+export function setMaxAnisotropy(n: number): void {
+  maxAnisotropy = Math.max(4, Math.floor(n));
+}
+
 function finish(c: HTMLCanvasElement): THREE.CanvasTexture {
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = maxAnisotropy;
   return tex;
 }
 
@@ -59,7 +71,7 @@ function finishLinear(c: HTMLCanvasElement): THREE.CanvasTexture {
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.anisotropy = 4;
+  tex.anisotropy = maxAnisotropy;
   return tex;
 }
 
@@ -315,4 +327,56 @@ export function roofTextureFor(palette: ExteriorPalette): THREE.CanvasTexture {
     default:
       return shingleTexture(palette.roof);
   }
+}
+
+/**
+ * What a window looks like in an architectural photograph.
+ *
+ * A pane is mostly reflection, and the thing it reflects is the sky: bright
+ * and cool at the head, dropping through a horizon line into the darker
+ * ground and the room behind. The obvious way to get that is an environment
+ * map, but every envMap on a PBR material is PMREM-filtered internally by
+ * three, and that is the exact path this viewer had to abandon — it renders
+ * black on SwiftShader, llvmpipe, and iOS Safari. So the reflection is
+ * painted instead: no render targets, no float textures, works everywhere.
+ *
+ * Box UVs run 0..1 per face and textures are flipped, so canvas top is world
+ * top — the sky lands at the head of the pane without any per-mesh setup.
+ */
+export function glassTexture(): THREE.CanvasTexture {
+  const [c, g] = canvas(128);
+  // Sky above the horizon, ground and room below it.
+  const HORIZON = 0.62;
+  const sky = g.createLinearGradient(0, 0, 0, 128 * HORIZON);
+  sky.addColorStop(0, "#b8d6ee");
+  sky.addColorStop(0.55, "#dbeaf6");
+  sky.addColorStop(1, "#eef4f7");
+  g.fillStyle = sky;
+  g.fillRect(0, 0, 128, 128 * HORIZON);
+  const room = g.createLinearGradient(0, 128 * HORIZON, 0, 128);
+  room.addColorStop(0, "#7d8f97");
+  room.addColorStop(0.35, "#4c565c");
+  room.addColorStop(1, "#39424a");
+  g.fillStyle = room;
+  g.fillRect(0, 128 * HORIZON, 128, 128 * (1 - HORIZON));
+  // A soft tree-line sitting on the horizon, the way glass picks up whatever
+  // is across the street. Deterministic, so panes never shimmer.
+  const r = mulberry32(71);
+  g.fillStyle = "rgba(58,74,52,0.5)";
+  for (let x = 0; x < 128; x += 4) {
+    const h = 5 + r() * 9;
+    g.fillRect(x, 128 * HORIZON - h, 5, h);
+  }
+  // The diagonal sheen that says "flat glass" more than anything else does.
+  g.save();
+  g.globalCompositeOperation = "lighter";
+  const sheen = g.createLinearGradient(0, 128, 128, 0);
+  sheen.addColorStop(0, "rgba(255,255,255,0)");
+  sheen.addColorStop(0.46, "rgba(255,255,255,0)");
+  sheen.addColorStop(0.54, "rgba(255,255,255,0.30)");
+  sheen.addColorStop(0.62, "rgba(255,255,255,0)");
+  g.fillStyle = sheen;
+  g.fillRect(0, 0, 128, 128);
+  g.restore();
+  return finish(c);
 }

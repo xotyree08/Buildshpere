@@ -15,7 +15,9 @@ import { BrandMark } from "./BrandMark";
 import {
   clapboardBump,
   concreteTexture,
+  glassTexture,
   grassTexture,
+  setMaxAnisotropy,
   plasterTexture,
   roofTextureFor,
   shingleBump,
@@ -140,6 +142,10 @@ export function Viewer3D({
     scene.add(sun, sun.target);
     scene.add(new THREE.HemisphereLight(0xcfe4f5, 0x6a7a55, 0.9));
 
+    // Grazing-angle surfaces (lawn, drive, roof) live or die on this, and
+    // it must be set before the first texture is built.
+    setMaxAnisotropy(renderer.capabilities.getMaxAnisotropy());
+
     const disposables: { dispose(): void }[] = [];
     const track = <T extends { dispose(): void }>(x: T): T => {
       disposables.push(x);
@@ -187,12 +193,14 @@ export function Viewer3D({
     // from outside, so it is brighter, glossier, and barely see-through.
     const glassMat = track(
       new THREE.MeshStandardMaterial({
-        color: 0xdcecf7,
-        roughness: 0.05,
-        metalness: 0.15,
-        envMapIntensity: 1.4,
+        // The painted sky reflection carries the colour; tinting on top of it
+        // only washes it out, so the base stays white.
+        map: track(glassTexture()),
+        color: 0xffffff,
+        roughness: 0.08,
+        metalness: 0.1,
         transparent: true,
-        opacity: 0.86,
+        opacity: 0.94,
       }),
     );
     const plainMats = new Map<string, THREE.MeshStandardMaterial>();
@@ -241,7 +249,18 @@ export function Viewer3D({
         // The map is already the paving's colour. Tinting the material with
         // the same colour on top of it multiplied one two-thirds grey by
         // another and turned a concrete driveway into wet asphalt.
-        const m = track(new THREE.MeshStandardMaterial({ map: driveTex.clone(), roughness: 0.95 }));
+        // Flatwork sits within a hair of the lawn, and the two planes tore
+        // into each other in stipple along the front walk. Bias the paving
+        // toward the camera in the depth buffer so it always wins.
+        const m = track(
+          new THREE.MeshStandardMaterial({
+            map: driveTex.clone(),
+            roughness: 0.95,
+            polygonOffset: true,
+            polygonOffsetFactor: -2,
+            polygonOffsetUnits: -2,
+          }),
+        );
         (m.map as THREE.Texture).repeat.set(Math.max(box.w, 1) / TILE_FT, Math.max(box.d, 1) / TILE_FT);
         (m.map as THREE.Texture).needsUpdate = true;
         track(m.map as THREE.Texture);
@@ -293,11 +312,38 @@ export function Viewer3D({
     }
 
     // Landscaping: varied trees — three canopy tones, multi-lobe crowns.
+    //
+    // Foliage is the element that most gives a render away as a render. A
+    // subdivided icosahedron under flat shading is a faceted ball — legible
+    // as "tree", never mistakable for one. Two changes fix it: shade the
+    // crown smoothly, and push every vertex in and out along its normal so
+    // the silhouette breaks up the way a canopy's does. The displacement is
+    // a hash of the vertex position, so it is stable across frames and
+    // reloads without carrying any PRNG state.
+    const roughen = (geo: THREE.BufferGeometry, amount: number, seed: number): THREE.BufferGeometry => {
+      const pos = geo.attributes.position as THREE.BufferAttribute;
+      const v = new THREE.Vector3();
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i);
+        // Low frequency on purpose. Hashing raw feet gives every vertex an
+        // uncorrelated value, and the crown comes out as cauliflower; scaling
+        // the input down makes neighbours agree, so the noise reads as a few
+        // soft masses of leaf instead of per-vertex spikes.
+        const n = v.clone().normalize().multiplyScalar(1.6);
+        const h = Math.sin(n.x * 12.9898 + n.y * 4.1414 + n.z * 7.719 + seed) * 43758.5453;
+        const noise = h - Math.floor(h); // 0..1
+        v.multiplyScalar(1 + (noise - 0.5) * amount);
+        pos.setXYZ(i, v.x, v.y, v.z);
+      }
+      pos.needsUpdate = true;
+      geo.computeVertexNormals();
+      return geo;
+    };
     const trunkMat = plain("#6d543a", 1);
     const canopyMats = [0x5d7f46, 0x4f7038, 0x6b8a50].map((color) =>
-      track(new THREE.MeshStandardMaterial({ color, roughness: 1, flatShading: true })),
+      track(new THREE.MeshStandardMaterial({ color, roughness: 1 })),
     );
-    const bushMat = track(new THREE.MeshStandardMaterial({ color: 0x55763f, roughness: 1, flatShading: true }));
+    const bushMat = track(new THREE.MeshStandardMaterial({ color: 0x55763f, roughness: 1 }));
     scene3d.trees.forEach((tree, ti) => {
       const canopyMat = canopyMats[ti % canopyMats.length];
       const trunk = new THREE.Mesh(track(new THREE.CylinderGeometry(0.35, 0.55, tree.trunkH, 7)), trunkMat);
@@ -315,7 +361,10 @@ export function Viewer3D({
       for (const [lx, ly, lz, lr] of lobes) {
         const x = lx * Math.cos(spin) - lz * Math.sin(spin);
         const z = lx * Math.sin(spin) + lz * Math.cos(spin);
-        const lobe = new THREE.Mesh(track(new THREE.IcosahedronGeometry(tree.canopyR * lr, 1)), canopyMat);
+        const lobe = new THREE.Mesh(
+          track(roughen(new THREE.IcosahedronGeometry(tree.canopyR * lr, 4), 0.22, ti * 7 + lx)),
+          canopyMat,
+        );
         lobe.position.set(tree.x + x * tree.canopyR, tree.trunkH + ly * tree.canopyR, tree.z + z * tree.canopyR);
         lobe.castShadow = true;
         scene.add(lobe);
@@ -336,7 +385,7 @@ export function Viewer3D({
     }
 
     for (const bush of scene3d.bushes) {
-      const mesh = new THREE.Mesh(track(new THREE.IcosahedronGeometry(bush.r, 1)), bushMat);
+      const mesh = new THREE.Mesh(track(roughen(new THREE.IcosahedronGeometry(bush.r, 3), 0.2, bush.x + bush.z)), bushMat);
       mesh.position.set(bush.x, bush.r * 0.6, bush.z);
       mesh.castShadow = true;
       scene.add(mesh);
