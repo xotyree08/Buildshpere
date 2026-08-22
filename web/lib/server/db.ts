@@ -266,6 +266,24 @@ create table if not exists mfa_recovery_codes (
   primary key (user_id, code_hash)
 )`,
   },
+  {
+    id: "0007-markup",
+    sql: `create table if not exists markup_issues (
+  id text primary key,
+  project_id text not null,
+  sheet text not null,
+  pinned_version integer not null,
+  x double precision not null,
+  y double precision not null,
+  body text not null,
+  author_id text not null,
+  status text not null,
+  created_at timestamp not null,
+  resolved_at timestamp,
+  resolved_by text
+);
+create index if not exists markup_issues_project on markup_issues(project_id)`,
+  },
 ];
 
 const LEDGER_SQL = `create table if not exists schema_migrations (
