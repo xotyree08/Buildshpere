@@ -25,6 +25,13 @@ export async function GET() {
       Boolean(process.env.REDIS_URL),
       "Set REDIS_URL when the job queue lands (ADR-008). Until then, generation runs synchronously in-request.",
     ),
+    // The one integration people actually ask about, and the only one that was
+    // missing: without it "Photoreal still" answers 503 and the app has no way
+    // to produce a photograph at all.
+    photoreal: check(
+      Boolean(process.env.REPLICATE_API_TOKEN),
+      "Set REPLICATE_API_TOKEN (replicate.com → Account → API tokens) in the deployment env, then redeploy. Until then, photoreal stills, 360° scenes and rendered walkthroughs all return 503 and the real-time 3D viewer is the only visualization.",
+    ),
     storage: check(
       Boolean(process.env.S3_BUCKET),
       "Set S3_BUCKET when render-asset storage lands. Until then, no server-side assets are stored.",
