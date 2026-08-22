@@ -5,7 +5,14 @@ across 63 files) against the BuildSphere Software Specification Package v1.0.
 Statuses: **Built** (working + tested), **Partial** (a real slice exists, spec
 asks for more), **Missing** (not started).
 
-> Refreshed 2026-08-22. The previous revision was written at 27 merged PRs and
+> Refreshed 2026-08-22, twice. The second pass follows PRs #112–#117, which
+> closed every item the first pass listed as buildable — organizations, MFA,
+> the markup workspace, the marketplace and jurisdiction profiles — plus the
+> migration ledger those five needed underneath them. Kept current in the same
+> commit as the work, because the whole reason for the first refresh was that
+> nobody had.
+>
+> The previous revision was written at 27 merged PRs and
 > had gone badly stale — it listed the WebGL viewer, photoreal renders, render
 > credits, the status model, audit events, email verification, budget
 > scenarios, estimate provenance, Stripe, the admin console, analytics,
@@ -18,7 +25,7 @@ asks for more), **Missing** (not started).
 
 | MVP item | Status | Notes |
 |---|---|---|
-| Account, organization, project management | Partial | Email+password auth, sessions, roles, email verification, password reset, login throttling, data export, account deletion. **Missing: organizations/teams (BS-ID-002), MFA.** |
+| Account, organization, project management | Built | Email+password auth, sessions, roles, email verification, password reset, login throttling, data export, account deletion, organizations with three roles (#113), and TOTP two-factor with single-use recovery codes (#114). |
 | Property setup, survey upload, confirmed constraints | Partial | Lot dimensions, user-entered setback rules driving site plan and permit readiness, constraint register with severity and resolution. **Missing: survey upload/extraction (BS-LAND-002), parcel lookup (BS-LAND-001).** |
 | Design brief + inspiration uploads | Built | Interview + inspiration photo with AI style analysis; degrades honestly without an AI key. |
 | Three concept alternatives | Built | Three variants, 28-style catalog with style-true roofs and massing, normalized comparison. |
@@ -27,7 +34,7 @@ asks for more), **Missing** (not started).
 | Material selections, curated catalog | Built | Interior and exterior catalogs, live repricing, visual updates across every renderer. |
 | Model-linked estimate + budget scenarios | Built | Deterministic takeoff → regional price book → ±15% range, per-line source/date/confidence, VE with exact savings and one-click apply, budget scenarios. |
 | Document center, invitations, comments, decisions | **Missing** | No object storage. Blocked on a storage account — see §4. |
-| Professional directory, quote request, controlled delivery | Partial | Directed invites, credential profiles, review request → claim → approve/request-changes with role gating and audit trail, review record on plans. **Missing: marketplace search (BS-PRO-001), proposals (BS-PRO-002), markup workspace (BS-PRO-003), license tracking (BS-PRO-006).** |
+| Professional directory, quote request, controlled delivery | Partial | Directed invites, credential profiles, review request → claim → approve/request-changes with role gating and audit trail, opt-in marketplace with sealed proposals (#116), markup workspace with version-pinned issues and an explicit seal boundary (#115). **Missing: licence verification against a board (BS-PRO-006) — credentials remain self-reported, and every listing says so.** |
 | Subscriptions, render credits, admin, analytics | Built | Per-project licenses (Concept/Design/Complete/Build+), Stripe seam for web, StoreKit + Play Billing with server receipt validation, render credit metering with refund-on-failure, admin console, cookieless usage metrics, client error intake. |
 
 ## 2. Systems since started
@@ -44,11 +51,11 @@ engine. None is complete against the full spec, but each produces real output.
 | Energy | `energy.ts` | Envelope + materials efficiency report with payback |
 | Interchange | `lib/export/ifc/` | IFC4 STEP export with structural round-trip testing |
 
-Still not started: **Marketplace** (search/match, proposals, engagements,
-payouts), **markup workspace** (synchronized drawing review, issues pinned to
-versions, seal/signature boundary), **PermitSphere beyond readiness**
-(jurisdiction profiles, package assembly, correction intake, inspections),
-**LandSphere** (parcel lookup, survey extraction, buildability score).
+Still not started: **marketplace engagements and payouts** (search, proposals
+and awards ship in #116; taking money between the parties does not),
+**PermitSphere correction intake and inspections** (jurisdiction profiles and
+package assembly ship in #117), **LandSphere** (parcel lookup, survey
+extraction, buildability score — blocked, see §4).
 
 ## 3. Cross-cutting platform status
 
@@ -89,18 +96,27 @@ supply. Each names exactly what is needed.
    gate before the web side can migrate, or the two clients disagree about
    the size of the house by a factor of 305.
 
-## 5. Buildable now, in recommended order
+## 5. Buildable now
 
-1. **Organizations/teams (BS-ID-002)** — the largest remaining identity gap.
-   Projects belong to individuals today; every professional workflow assumes
-   a firm.
-2. **MFA** — self-contained, and the last item on the identity checklist.
-3. **Markup workspace (BS-PRO-003/004)** — issues pinned to a drawing version,
-   with the seal/signature boundary (BS-PRO-005) drawn explicitly.
-4. **Marketplace search + proposals (BS-PRO-001/002)** — builds on the
-   professional directory that already exists.
-5. **Jurisdiction profiles (BS-PERM-001)** — turns permit *readiness* into
-   permit *assembly*. Setback rules are already data-driven; this extends it.
+**Nothing.** Every item this section listed has shipped:
+
+| Item | PR |
+|---|---|
+| Migration ledger (prerequisite for the rest) | #112 |
+| Organizations/teams (BS-ID-002) | #113 |
+| MFA | #114 |
+| Markup workspace (BS-PRO-003/004/005) | #115 |
+| Marketplace search + proposals (BS-PRO-001/002) | #116 |
+| Jurisdiction profiles (BS-PERM-001) | #117 |
+
+What remains is in §4 — four items, each waiting on a decision or an account
+that only the founder can supply. That is the honest state: not "more work to
+do", but "four answers needed before more work is possible".
+
+The next tier of product work, once those unblock, is marketplace engagements
+and payouts, permit correction intake and inspection tracking, and the
+cross-cutting platform gaps in §3 that nobody has scheduled — OAuth,
+idempotency keys, OpenAPI, an accessibility audit, and security testing.
 
 ## 6. Where the build exceeds the spec
 
