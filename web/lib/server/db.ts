@@ -228,6 +228,29 @@ export const MIGRATIONS: Migration[] = [
     id: "0003-review-requests-invited",
     sql: "alter table review_requests add column invited text not null default 'open'",
   },
+  {
+    id: "0004-organizations",
+    sql: `create table if not exists organizations (
+  id text primary key,
+  name text not null,
+  created_by text not null,
+  created_at timestamp not null
+);
+create table if not exists org_members (
+  org_id text not null,
+  user_id text not null,
+  role text not null,
+  added_at timestamp not null,
+  primary key (org_id, user_id)
+);
+create index if not exists org_members_user on org_members(user_id)`,
+  },
+  {
+    // Nullable on purpose: a project with no org is a personal project and
+    // behaves exactly as it did before organizations existed.
+    id: "0005-projects-org",
+    sql: "alter table projects add column org_id text",
+  },
 ];
 
 const LEDGER_SQL = `create table if not exists schema_migrations (
