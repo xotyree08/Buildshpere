@@ -1,4 +1,11 @@
-import { buildSitePlan, GENERIC_SETBACKS, isGenericSetbacks, type SetbackRules } from "@/lib/engine/site";
+import {
+  buildSitePlan,
+  drivewayRects,
+  garageDoorWall,
+  GENERIC_SETBACKS,
+  isGenericSetbacks,
+  type SetbackRules,
+} from "@/lib/engine/site";
 import type { ParametricModel } from "@/lib/types";
 
 const ROOM_FILLS: Record<string, string> = {
@@ -21,6 +28,30 @@ export function SitePlanView({
   const site = buildSitePlan(model, lotWidthFt, lotDepthFt, rules);
   const pad = 4;
   const streetBand = 6;
+
+  // The driveway, from the same rule the 3-D scene reads. Its reach is the gap
+  // between the vehicle door and whatever it has to meet: the street for a
+  // front-loaded garage, the rear lot line for an alley-loaded one. Pavement is
+  // not roofed, so it stays out of the coverage figure by construction —
+  // `maxCoveragePct` governs roofed footprint.
+  const placedGarage = site.placedRooms.find((p) => p.room.kind === "garage");
+  const doorWall = placedGarage ? garageDoorWall(model, placedGarage.room) : null;
+  const drive =
+    placedGarage && doorWall
+      ? drivewayRects(
+          { x: placedGarage.x, y: placedGarage.y, w: placedGarage.w, d: placedGarage.d },
+          doorWall,
+          doorWall === "n"
+            ? placedGarage.y
+            : doorWall === "s"
+              ? site.lotDepthFt - (placedGarage.y + placedGarage.d)
+              : Math.max(
+                  0,
+                  doorWall === "w" ? placedGarage.x : site.lotWidthFt - (placedGarage.x + placedGarage.w),
+                ),
+          0,
+        )
+      : [];
 
   return (
     <div>
@@ -51,6 +82,20 @@ export function SitePlanView({
           strokeDasharray="2 1.5"
         />
 
+        {/* driveway, under the footprint so the building always reads on top */}
+        {drive.map((r, i) => (
+          <rect
+            key={`drive${i}`}
+            x={r.x}
+            y={r.y}
+            width={r.w}
+            height={r.d}
+            fill="var(--site-street)"
+            stroke="var(--fg)"
+            strokeWidth={0.15}
+          />
+        ))}
+
         {/* footprint rooms */}
         {site.placedRooms.map(({ room, x, y, w, d }) => (
           <rect
@@ -66,7 +111,7 @@ export function SitePlanView({
         ))}
 
         {/* margin annotations */}
-        <text x={site.lotWidthFt / 2} y={site.rules.frontFt / 2} textAnchor="middle" fontSize={2.6} fill="var(--muted)">
+        <text x={site.lotWidthFt / 2} y={site.rules.frontFt / 2} textAnchor="middle" fontSize={2.6} fill="var(--muted)" stroke="var(--site-lot)" strokeWidth={0.7} paintOrder="stroke">
           {site.margins.front} ft
         </text>
         <text
@@ -75,6 +120,9 @@ export function SitePlanView({
           textAnchor="middle"
           fontSize={2.6}
           fill="var(--muted)"
+          stroke="var(--site-lot)"
+          strokeWidth={0.7}
+          paintOrder="stroke"
         >
           {site.margins.rear} ft
         </text>
@@ -84,6 +132,9 @@ export function SitePlanView({
           textAnchor="middle"
           fontSize={2.6}
           fill="var(--muted)"
+          stroke="var(--site-lot)"
+          strokeWidth={0.7}
+          paintOrder="stroke"
         >
           {site.margins.side} ft
         </text>

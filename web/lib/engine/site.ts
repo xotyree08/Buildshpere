@@ -176,3 +176,71 @@ export function buildSitePlan(
     violations,
   };
 }
+
+/** Rectangle in whatever space the caller is working in. */
+export interface DriveRect {
+  x: number;
+  y: number;
+  w: number;
+  d: number;
+}
+
+/** How wide a drive lane runs when it has to reach the street sideways. */
+export const DRIVE_LANE_FT = 12;
+
+/**
+ * The wall the vehicle door is in.
+ *
+ * The widest door on the garage, not the first one found — the first is
+ * usually the three-foot door into the house, and taking it laid the driveway
+ * out of the back wall into the garden. The 3-D scene worked this out for
+ * itself; the site plan drew no driveway at all, so the two sheets showed
+ * different houses. One rule, read by both.
+ */
+export function garageDoorWall(model: ParametricModel, garage: Room): "n" | "s" | "e" | "w" {
+  return (
+    model.openings
+      .filter((o) => o.roomKey === garage.key && o.kind === "door")
+      .sort((a, b) => b.widthFt - a.widthFt)[0]?.wall ?? "n"
+  );
+}
+
+/**
+ * The driveway, as rectangles running from the vehicle door out to `reachFt`.
+ *
+ * A front- or alley-loaded garage gives one straight run. A side-loaded one
+ * cannot: the pavement leaves the door sideways and then has to turn to reach
+ * the street, so it comes back as an apron plus a lane. Coordinates are the
+ * caller's — the 3-D scene works in model space, the site plan in lot space —
+ * and `laneToFt` is where the lane's far end lands (the street edge on the
+ * site plan). Pass it null for the apron alone, which is all the 3-D scene
+ * needs since it draws no lot.
+ */
+export function drivewayRects(
+  garage: DriveRect,
+  doorWall: "n" | "s" | "e" | "w",
+  reachFt: number,
+  laneToFt: number | null = null,
+): DriveRect[] {
+  const { x, y, w, d } = garage;
+  // Inset from the jambs so the pavement reads as a drive, not a slab the
+  // full width of the building.
+  const runW = Math.min(w - 1.6, 19);
+  const runD = Math.min(d - 1.6, 19);
+  if (reachFt <= 0) return [];
+  if (doorWall === "n") return [{ x: x + 0.8, y: y - reachFt, w: runW, d: reachFt }];
+  if (doorWall === "s") return [{ x: x + 0.8, y: y + d, w: runW, d: reachFt }];
+
+  const apron: DriveRect =
+    doorWall === "w"
+      ? { x: x - reachFt, y: y + 0.8, w: reachFt, d: runD }
+      : { x: x + w, y: y + 0.8, w: reachFt, d: runD };
+  if (laneToFt === null) return [apron];
+  // The lane runs from the apron's outer edge to the street, hugging the side
+  // the door faces.
+  const laneX = doorWall === "w" ? apron.x : apron.x + apron.w - DRIVE_LANE_FT;
+  const laneTop = Math.min(laneToFt, apron.y);
+  const laneD = apron.y - laneTop;
+  if (laneD <= 0) return [apron];
+  return [apron, { x: laneX, y: laneTop, w: DRIVE_LANE_FT, d: laneD }];
+}

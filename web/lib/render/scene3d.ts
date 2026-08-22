@@ -11,6 +11,7 @@ import { defaultSchemeFor, furnitureForModel, schemeByKey, type FurnitureItem, t
 import { exteriorRuns } from "../engine/adjacency";
 import { DOOR_HEAD_FT, WINDOW_HEAD_FT, WINDOW_SILL_FT } from "../engine/openings";
 import { buildRoof, roofFacets, roofPeakFt, type RoofGeometry } from "../engine/roofgeom";
+import { drivewayRects, garageDoorWall } from "../engine/site";
 import { WALL_HEIGHT_FT } from "../engine/iso";
 import type { HomeStyle, ParametricModel, Room } from "../types";
 import { exteriorPalette, shade } from "./palette";
@@ -271,6 +272,9 @@ function wallBoxes(room: Room, base: number, height: number, color: string, cuts
     return cutWallBox(box, alongX, near);
   });
 }
+
+/** How far the drive runs out from the garage in the 3-D scene, which draws no lot. */
+const DRIVE_REACH_FT = 22;
 
 export function buildScene3D(
   model: ParametricModel,
@@ -547,14 +551,11 @@ export function buildScene3D(
     // The vehicle door, which is the wide one. Taking the first door found
     // took the three-foot door into the house instead, and the driveway was
     // laid out of the back wall into the garden.
-    const doorWall =
-      model.openings
-        .filter((o) => o.roomKey === garage.key && o.kind === "door")
-        .sort((a, b) => b.widthFt - a.widthFt)[0]?.wall ?? "n";
-    if (doorWall === "n") boxes.push({ x: gx + 0.8, y: -0.34, z: gz - 22, w: Math.min(gw - 1.6, 19), h: 0.3, d: 22.2, color: "#c9c5bc", kind: "drive" });
-    else if (doorWall === "s") boxes.push({ x: gx + 0.8, y: -0.34, z: gz + gd - 0.2, w: Math.min(gw - 1.6, 19), h: 0.3, d: 22.2, color: "#c9c5bc", kind: "drive" });
-    else if (doorWall === "w") boxes.push({ x: gx - 22, y: -0.34, z: gz + 0.8, w: 22.2, h: 0.3, d: Math.min(gd - 1.6, 19), color: "#c9c5bc", kind: "drive" });
-    else boxes.push({ x: gx + gw - 0.2, y: -0.34, z: gz + 0.8, w: 22.2, h: 0.3, d: Math.min(gd - 1.6, 19), color: "#c9c5bc", kind: "drive" });
+    const doorWall = garageDoorWall(model, garage);
+    // No lot here, so nothing to turn toward: the apron alone.
+    for (const r of drivewayRects({ x: gx, y: gz, w: gw, d: gd }, doorWall, DRIVE_REACH_FT)) {
+      boxes.push({ x: r.x, y: -0.34, z: r.y, w: r.w, h: 0.3, d: r.d, color: "#c9c5bc", kind: "drive" });
+    }
   }
   // The walk to the front door, from the door itself rather than from the
   // middle of whatever room sits nearest the street. On a garage-forward plan
