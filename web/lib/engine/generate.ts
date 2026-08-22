@@ -330,18 +330,33 @@ function tileItems(specs: RoomSpec[]): TileItem[] {
 /** Split a storey into two near-equal halves, largest rooms first. */
 function halve(specs: RoomSpec[]): RoomSpec[][] {
   if (specs.length < 2) return [specs];
-  const sorted = [...specs].sort((a, b) => b.areaSqft - a.areaSqft || a.label.localeCompare(b.label));
-  const total = sorted.reduce((sum, spec) => sum + spec.areaSqft, 0);
-  const front: RoomSpec[] = [];
+  // A suite is one thing to split, not three.
+  //
+  // Splitting bare room specs by area put the primary bath or the walk-in on
+  // the far side of the corridor from the bedroom they open off in almost one
+  // plan in five. The tiler downstream is careful to keep a suite together
+  // inside its own cell — but only if the suite reaches it intact, and this
+  // is the step that was pulling it apart first.
+  const units = new Map<string, RoomSpec[]>();
+  for (const spec of specs) {
+    const key = spec.suite ?? `solo:${spec.label}`;
+    units.set(key, [...(units.get(key) ?? []), spec]);
+  }
+  const areaOf = (group: RoomSpec[]) => group.reduce((sum, spec) => sum + spec.areaSqft, 0);
+  const sorted = [...units.values()].sort(
+    (a, b) => areaOf(b) - areaOf(a) || a[0].label.localeCompare(b[0].label),
+  );
+  const total = sorted.reduce((sum, group) => sum + areaOf(group), 0);
+  const front: RoomSpec[][] = [];
   let running = 0;
-  for (const spec of sorted) {
+  for (const group of sorted) {
     if (running < total / 2 || front.length === 0) {
-      front.push(spec);
-      running += spec.areaSqft;
+      front.push(group);
+      running += areaOf(group);
     }
   }
-  const back = sorted.filter((spec) => !front.includes(spec));
-  return back.length > 0 ? [front, back] : [sorted];
+  const back = sorted.filter((group) => !front.includes(group));
+  return back.length > 0 ? [front.flat(), back.flat()] : [sorted.flat()];
 }
 
 /**
@@ -467,6 +482,11 @@ function packLevel(specs: RoomSpec[], level: number, maxRowWidthFt: number): Roo
 
   for (const [index, zone] of zones.entries()) {
     const depth = (bodyDepth * walled(zone)) / roomArea;
+    // Which sides of this band are the outside of the house. The flanks
+    // always are. The front is only outside when nothing stands in front of
+    // it, and the back only when nothing follows — the corridor between two
+    // zones is not daylight, and counting it as such kept landlocking
+    // bedrooms in the middle of the sleeping side.
     // Which sides of this band are the outside of the house. The flanks
     // always are. The front is only outside when nothing stands in front of
     // it, and the back only when nothing follows — the corridor between two
@@ -681,10 +701,17 @@ function addOpenings(model: ParametricModel): void {
       // window into a railing is not a window, it is a gap in a fence.
       const lit = HABITABLE.includes(room.kind);
       if (!lit && !LIT_SERVICE.includes(room.kind)) continue;
-      const width = lit ? WINDOW_FT : SMALL_WINDOW_FT;
+      const wanted = lit ? WINDOW_FT : SMALL_WINDOW_FT;
       for (const side of WALL_SIDES) {
         for (const run of free.get(at(room, side))!) {
           const usable = run.to - run.from - CORNER_INSET_FT * 2;
+          // A narrow window rather than none. A front door landing in the
+          // middle of a room's only outside wall leaves two stubs, and a
+          // sixteen-foot living room wall came back with no glass at all
+          // because neither stub could take a four-foot opening once its
+          // corners were allowed for. A window beside a door is a sidelight,
+          // which is a thing houses have.
+          const width = usable >= wanted ? wanted : SMALL_WINDOW_FT;
           // A hair of slack, because these are differences of rounded
           // dimensions: a kitchen's seven-foot strip of outside wall measured
           // 3.999999999999996 feet of usable run and came back windowless.
