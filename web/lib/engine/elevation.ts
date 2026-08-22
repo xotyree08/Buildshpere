@@ -139,8 +139,8 @@ export function buildElevation(
       if (o.roomKey !== room.key || o.wall !== wall) continue;
       const on = outside.some((run) => o.offsetFt >= run.from - 0.6 && o.offsetFt + o.widthFt <= run.to + 0.6);
       if (!on) continue;
-      const center = room.rect[axis] + Math.min(o.offsetFt, room.rect[axis + 2]) - origin;
-      const x = center - o.widthFt / 2;
+      // offsetFt is the opening's left edge along the face, not its centre.
+      const x = room.rect[axis] + Math.min(o.offsetFt, room.rect[axis + 2]) - origin;
       if (o.kind === "window") {
         openings.push({ kind: "window", x, y: base - WINDOW_HEAD, w: o.widthFt, h: WINDOW_HEAD - WINDOW_SILL });
       } else {

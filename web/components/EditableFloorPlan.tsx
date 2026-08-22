@@ -362,10 +362,10 @@ export function EditableFloorPlan({
             const dragging = drag?.mode === "opening" && drag.openingKey === o.key;
             const offset = dragging ? drag.offsetFt : o.offsetFt;
             let ox = x, oy = y, ow = o.widthFt, oh = 0.6;
-            if (o.wall === "n") { ox = x + offset - o.widthFt / 2; oy = y - 0.3; }
-            if (o.wall === "s") { ox = x + offset - o.widthFt / 2; oy = y + d - 0.3; }
-            if (o.wall === "e") { ox = x + w - 0.3; oy = y + offset - o.widthFt / 2; ow = 0.6; oh = o.widthFt; }
-            if (o.wall === "w") { ox = x - 0.3; oy = y + offset - o.widthFt / 2; ow = 0.6; oh = o.widthFt; }
+            if (o.wall === "n") { ox = x + offset; oy = y - 0.3; }
+            if (o.wall === "s") { ox = x + offset; oy = y + d - 0.3; }
+            if (o.wall === "e") { ox = x + w - 0.3; oy = y + offset; ow = 0.6; oh = o.widthFt; }
+            if (o.wall === "w") { ox = x - 0.3; oy = y + offset; ow = 0.6; oh = o.widthFt; }
             const bad = dragging && !dragValid;
             return (
               <rect
