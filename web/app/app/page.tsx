@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { BrandMark } from "@/components/BrandMark";
 import { prepareImport, validateExport } from "@/lib/portability";
-import { accountEmail, deleteProject, formatUsd, loadProjects, newId, saveProject, type StoredProject } from "@/lib/store";
+import { accountEmail, deleteProject, formatUsd, loadProjects, newId, readProjects, saveProject, type StoredProject } from "@/lib/store";
 
 interface AppNotification {
   id: string;
@@ -19,13 +19,18 @@ interface AppNotification {
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<StoredProject[] | null>(null);
   const [importMessage, setImportMessage] = useState<string | null>(null);
+  // A store that cannot be read is shown, not swallowed: the alternative is
+  // a returning customer being told they have no projects.
+  const [storeError, setStoreError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unread, setUnread] = useState(0);
   const [showNotifications, setShowNotifications] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setProjects(loadProjects());
+    const read = readProjects();
+    setProjects(read.projects);
+    setStoreError(read.error);
     if (accountEmail()) {
       void fetch("/api/v1/notifications")
         .then((r) => (r.ok ? r.json() : null))
@@ -98,6 +103,7 @@ export default function ProjectsPage() {
           </Link>
         </span>
       </div>
+      {storeError && <p className="status-warn">{storeError}</p>}
       {importMessage && <p className="status-warn">{importMessage}</p>}
       {showNotifications && (
         <div className="card" style={{ marginBottom: "1rem" }}>
@@ -151,8 +157,10 @@ export default function ProjectsPage() {
                   <button
                     className="btn secondary"
                     onClick={() => {
-                      deleteProject(project.id);
-                      setProjects(loadProjects());
+                      const result = deleteProject(project.id);
+                      const read = readProjects();
+                      setProjects(read.projects);
+                      setStoreError(result.ok ? read.error : result.error);
                     }}
                   >
                     Delete

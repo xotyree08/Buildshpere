@@ -5,7 +5,7 @@
  * user is signed out (401).
  */
 
-import { loadProjects, replaceAllProjects, setAccountEmail, type StoredProject } from "./store";
+import { readProjects, replaceAllProjects, setAccountEmail, type StoredProject } from "./store";
 
 export interface AuthUser {
   id: string;
@@ -102,8 +102,15 @@ export async function syncNow(): Promise<SyncOutcome> {
   if (!res.ok) return { ok: false, error: await readError(res, "Sync failed.") };
   const { projects: remote } = (await res.json()) as { projects: StoredProject[] };
 
-  const merged = mergeProjects(loadProjects(), remote);
-  const written = replaceAllProjects(merged);
+  // A merge needs both sides. If the local side could not be read, merging
+  // against an empty list would look like "this device has nothing" and write
+  // the remote set over whatever is actually down there — including projects
+  // that only exist on this device.
+  const local = readProjects();
+  if (local.error) return { ok: false, error: `${local.error} Sync was stopped so nothing is overwritten.` };
+
+  const merged = mergeProjects(local.projects, remote);
+  const written = replaceAllProjects([...merged, ...local.unreadable] as typeof merged);
   if (!written.ok) return { ok: false, error: written.error };
 
   let pushed = 0;
