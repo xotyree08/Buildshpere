@@ -14,7 +14,6 @@ import type {
   ParametricModel,
   ValueEngineeringSuggestion,
 } from "../types";
-import { applyRevision } from "./revise";
 import { openingAreaByWall } from "./openings";
 import { allWalls, wallQuantities } from "./walls";
 import { buildRoof, footprintSqft, grossFloorSqft } from "./roofgeom";
@@ -341,11 +340,24 @@ const DEFERRABLE: { kind: string; label: string }[] = [
  * "saves $X" is the real delta, not a heuristic. Suggestions without a
  * safe automatic action stay advisory (no `action`).
  */
+/**
+ * How to produce the plan that results from dropping a room.
+ *
+ * Costing asks for this rather than importing it. Re-packing a house is
+ * geometry, and geometry sits ABOVE cost in the hierarchy this codebase is
+ * built on — the estimate is a reading taken off the building, not a thing
+ * that reshapes it. Importing the revision engine here made the dependency
+ * point backwards and the two modules mutually reachable; the caller, which
+ * is above both, supplies it instead.
+ */
+export type Repack = (model: ParametricModel, label: string) => ParametricModel | null;
+
 export function valueEngineering(
   estimate: Estimate,
   budgetCents: number | null,
   model: ParametricModel,
   finishes: EstimateFinishes = {},
+  repack?: Repack,
 ): ValueEngineeringSuggestion[] {
   if (budgetCents == null || estimate.totalCents <= budgetCents) return [];
   const suggestions: ValueEngineeringSuggestion[] = [];
@@ -375,13 +387,15 @@ export function valueEngineering(
     });
   }
 
-  // Deferrable rooms: exact savings via the same revision path the apply uses.
-  for (const deferrable of DEFERRABLE) {
+  // Deferrable rooms: exact savings via the same path the apply uses. Without
+  // a repack the finish downgrades above still stand — a caller that cannot
+  // re-pack simply gets fewer suggestions, never wrong ones.
+  for (const deferrable of repack ? DEFERRABLE : []) {
     const room = model.rooms.find((r) => r.kind === deferrable.kind);
     if (!room) continue;
-    const removed = applyRevision(model, [{ kind: "remove", target: room.label }]);
-    if (removed.applied.length === 0) continue;
-    const candidate = estimateRevision(removed.model, "ve-candidate", estimate.regionCode, finishes);
+    const removedModel = repack!(model, room.label);
+    if (!removedModel) continue;
+    const candidate = estimateRevision(removedModel, "ve-candidate", estimate.regionCode, finishes);
     const savings = estimate.totalCents - candidate.totalCents;
     if (savings <= 0) continue;
     suggestions.push({

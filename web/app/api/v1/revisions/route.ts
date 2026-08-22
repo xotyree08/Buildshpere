@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { runChecks } from "@/lib/engine/checks";
 import { estimateRevision, valueEngineering } from "@/lib/engine/estimate";
+import { repackWithout } from "@/lib/engine/repack";
 import { applyRevision, parseRevisionRequest } from "@/lib/engine/revise";
 import type { ParametricModel } from "@/lib/types";
 
@@ -51,6 +52,6 @@ export async function POST(req: Request) {
     healthScore: health.score,
     checkResults: health.results,
     estimate,
-    veSuggestions: valueEngineering(estimate, body.budgetCents ?? null, model),
+    veSuggestions: valueEngineering(estimate, body.budgetCents ?? null, model, {}, repackWithout),
   });
 }

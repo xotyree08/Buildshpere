@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DesignBrief, HomeStyle } from "../types";
 import { generateConcepts } from "./generate";
+import { repackWithout } from "./repack";
 import { estimateRevision, valueEngineering, type EstimateFinishes } from "./estimate";
 import { applyOpsToConceptPackage, runDesignLoop } from "./loop";
 
@@ -50,7 +51,7 @@ describe("valueEngineering exactness", () => {
   it("room-deferral savings equal the delta of actually removing the room", () => {
     const model = generateConcepts(brief("modern", true), 60)[0].model;
     const estimate = estimateRevision(model, "r");
-    const suggestions = valueEngineering(estimate, TIGHT_BUDGET, model);
+    const suggestions = valueEngineering(estimate, TIGHT_BUDGET, model, {}, repackWithout);
     const deferral = suggestions.find((s) => s.action?.kind === "remove_room");
     expect(deferral).toBeDefined();
     expect(deferral!.description).toContain("theater");
@@ -102,7 +103,7 @@ describe("valueEngineering exactness", () => {
   it("caps at five, sorted by savings descending", () => {
     const model = generateConcepts(brief(), 60)[0].model;
     const estimate = estimateRevision(model, "r");
-    const suggestions = valueEngineering(estimate, TIGHT_BUDGET, model);
+    const suggestions = valueEngineering(estimate, TIGHT_BUDGET, model, {}, repackWithout);
     expect(suggestions.length).toBeLessThanOrEqual(5);
     for (let i = 1; i < suggestions.length; i++) {
       expect(suggestions[i - 1].savingsCents).toBeGreaterThanOrEqual(suggestions[i].savingsCents);
