@@ -189,160 +189,101 @@ export interface Db {
   query(sql: string, params?: unknown[]): Promise<{ rows: Record<string, unknown>[] }>;
 }
 
+/**
+ * The migration ledger.
+ *
+ * Append-only and ordered: each entry runs once per database, and which ones
+ * have run is recorded in `schema_migrations` rather than guessed at.
+ *
+ * What this replaces: a hundred and fifty lines that probed
+ * `information_schema` for one table per feature and then recovered that
+ * table's DDL by slicing SCHEMA_SQL between the literal text of two
+ * `create table` lines. It worked, but only by accident of ordering — the
+ * `entitlements` probe applied three tables because its slice happened to run
+ * to `audit_events`, and the `audit_events` probe applied everything after it
+ * because its slice had no end. Two consequences, both silent:
+ *
+ *   - Reordering or renaming a table in SCHEMA_SQL changed which migrations
+ *     applied, with nothing to catch it.
+ *   - A table appended to SCHEMA_SQL got no probe at all, so it was created on
+ *     a fresh database and never on an existing one. Tests start empty and
+ *     take the create-everything path, so the suite stayed green while
+ *     production was missing a table.
+ *
+ * Adding a table now means appending one entry here. Nothing else.
+ */
+export interface Migration {
+  /** Stable, unique, never reused — this is what the ledger records. */
+  id: string;
+  sql: string;
+}
+
+export const MIGRATIONS: Migration[] = [
+  { id: "0001-base", sql: SCHEMA_SQL },
+  {
+    id: "0002-users-role",
+    sql: "alter table users add column role text not null default 'homeowner'",
+  },
+  {
+    id: "0003-review-requests-invited",
+    sql: "alter table review_requests add column invited text not null default 'open'",
+  },
+];
+
+const LEDGER_SQL = `create table if not exists schema_migrations (
+  id text primary key,
+  applied_at timestamp not null
+)`;
+
+async function applied(db: Db): Promise<Set<string>> {
+  const rows = await db.query("select id from schema_migrations");
+  return new Set(rows.rows.map((r) => String(r.id)));
+}
+
+async function record(db: Db, id: string): Promise<void> {
+  await db.query("insert into schema_migrations (id, applied_at) values ($1, $2)", [
+    id,
+    new Date().toISOString(),
+  ]);
+}
+
+async function run(db: Db, migration: Migration): Promise<void> {
+  for (const statement of migration.sql.split(";")) {
+    const sql = statement.trim();
+    if (sql) await db.query(sql);
+  }
+}
+
 export async function ensureSchema(db: Db): Promise<void> {
-  // Idempotent by inspection: apply base DDL only when absent
-  // (re-running index DDL also trips the in-memory test engine).
-  const existing = await db.query(
-    "select 1 from information_schema.tables where table_name = 'users'",
+  const hadLedger = await db.query(
+    "select 1 from information_schema.tables where table_name = 'schema_migrations'",
   );
-  if (existing.rows.length === 0) {
-    for (const statement of SCHEMA_SQL.split(";")) {
-      const sql = statement.trim();
-      if (sql) await db.query(sql);
+
+  if (hadLedger.rows.length === 0) {
+    // Guarded rather than `create table if not exists`: on the in-memory
+    // engine the tests use, re-running that still trips over the primary
+    // key's implicit index.
+    await db.query(LEDGER_SQL);
+    // No ledger yet. Either this database is new, or it predates the ledger
+    // and was brought to the current schema by the probe-and-slice code this
+    // replaces. Tell them apart by whether `users` exists, and adopt the
+    // legacy one by recording every migration WITHOUT running it — its tables
+    // are already there, and re-running index DDL is not idempotent on the
+    // in-memory engine the tests use.
+    const legacy = await db.query(
+      "select 1 from information_schema.tables where table_name = 'users'",
+    );
+    if (legacy.rows.length > 0) {
+      for (const migration of MIGRATIONS) await record(db, migration.id);
+      return;
     }
   }
-  // Incremental migrations for databases created before a column existed.
-  const roleCol = await db.query(
-    "select 1 from information_schema.columns where table_name = 'users' and column_name = 'role'",
-  );
-  if (roleCol.rows.length === 0) {
-    await db.query("alter table users add column role text not null default 'homeowner'");
-  }
-  const reviews = await db.query(
-    "select 1 from information_schema.tables where table_name = 'review_requests'",
-  );
-  if (reviews.rows.length === 0) {
-    const start = SCHEMA_SQL.indexOf("create table if not exists review_requests");
-    const end = SCHEMA_SQL.indexOf("create table if not exists share_links");
-    for (const statement of SCHEMA_SQL.slice(start, end).split(";")) {
-      const sql = statement.trim();
-      if (sql) await db.query(sql);
-    }
-  }
-  const shares = await db.query(
-    "select 1 from information_schema.tables where table_name = 'share_links'",
-  );
-  if (shares.rows.length === 0) {
-    const start = SCHEMA_SQL.indexOf("create table if not exists share_links");
-    const end = SCHEMA_SQL.indexOf("create table if not exists entitlements");
-    for (const statement of SCHEMA_SQL.slice(start, end).split(";")) {
-      const sql = statement.trim();
-      if (sql) await db.query(sql);
-    }
-  }
-  const entitlements = await db.query(
-    "select 1 from information_schema.tables where table_name = 'entitlements'",
-  );
-  if (entitlements.rows.length === 0) {
-    const start = SCHEMA_SQL.indexOf("create table if not exists entitlements");
-    const end = SCHEMA_SQL.indexOf("create table if not exists audit_events");
-    for (const statement of SCHEMA_SQL.slice(start, end).split(";")) {
-      const sql = statement.trim();
-      if (sql) await db.query(sql);
-    }
-  }
-  const audit = await db.query(
-    "select 1 from information_schema.tables where table_name = 'audit_events'",
-  );
-  if (audit.rows.length === 0) {
-    const start = SCHEMA_SQL.indexOf("create table if not exists audit_events");
-    for (const statement of SCHEMA_SQL.slice(start).split(";")) {
-      const sql = statement.trim();
-      if (sql) await db.query(sql);
-    }
-  }
-  const pros = await db.query(
-    "select 1 from information_schema.tables where table_name = 'professional_profiles'",
-  );
-  if (pros.rows.length === 0) {
-    const start = SCHEMA_SQL.indexOf("create table if not exists professional_profiles");
-    const end = SCHEMA_SQL.indexOf("create table if not exists notifications");
-    for (const statement of SCHEMA_SQL.slice(start, end).split(";")) {
-      const sql = statement.trim();
-      if (sql) await db.query(sql);
-    }
-  }
-  const notif = await db.query(
-    "select 1 from information_schema.tables where table_name = 'notifications'",
-  );
-  if (notif.rows.length === 0) {
-    const start = SCHEMA_SQL.indexOf("create table if not exists notifications");
-    const end = SCHEMA_SQL.indexOf("create table if not exists audit_events");
-    for (const statement of SCHEMA_SQL.slice(start, end).split(";")) {
-      const sql = statement.trim();
-      if (sql) await db.query(sql);
-    }
-  }
-  const invitedCol = await db.query(
-    "select 1 from information_schema.columns where table_name = 'review_requests' and column_name = 'invited'",
-  );
-  if (invitedCol.rows.length === 0) {
-    await db.query("alter table review_requests add column invited text not null default 'open'");
-  }
-  const resets = await db.query(
-    "select 1 from information_schema.tables where table_name = 'password_resets'",
-  );
-  if (resets.rows.length === 0) {
-    const start = SCHEMA_SQL.indexOf("create table if not exists password_resets");
-    const end = SCHEMA_SQL.indexOf("create table if not exists error_reports");
-    for (const statement of SCHEMA_SQL.slice(start, end).split(";")) {
-      const sql = statement.trim();
-      if (sql) await db.query(sql);
-    }
-  }
-  const errors = await db.query(
-    "select 1 from information_schema.tables where table_name = 'error_reports'",
-  );
-  if (errors.rows.length === 0) {
-    const start = SCHEMA_SQL.indexOf("create table if not exists error_reports");
-    const end = SCHEMA_SQL.indexOf("create table if not exists metrics_daily");
-    for (const statement of SCHEMA_SQL.slice(start, end).split(";")) {
-      const sql = statement.trim();
-      if (sql) await db.query(sql);
-    }
-  }
-  const metrics = await db.query(
-    "select 1 from information_schema.tables where table_name = 'metrics_daily'",
-  );
-  if (metrics.rows.length === 0) {
-    const start = SCHEMA_SQL.indexOf("create table if not exists metrics_daily");
-    const end = SCHEMA_SQL.indexOf("create table if not exists email_verifications");
-    for (const statement of SCHEMA_SQL.slice(start, end).split(";")) {
-      const sql = statement.trim();
-      if (sql) await db.query(sql);
-    }
-  }
-  const verifications = await db.query(
-    "select 1 from information_schema.tables where table_name = 'email_verifications'",
-  );
-  if (verifications.rows.length === 0) {
-    const start = SCHEMA_SQL.indexOf("create table if not exists email_verifications");
-    const end = SCHEMA_SQL.indexOf("create table if not exists project_licenses");
-    for (const statement of SCHEMA_SQL.slice(start, end).split(";")) {
-      const sql = statement.trim();
-      if (sql) await db.query(sql);
-    }
-  }
-  const licenses = await db.query(
-    "select 1 from information_schema.tables where table_name = 'project_licenses'",
-  );
-  if (licenses.rows.length === 0) {
-    const start = SCHEMA_SQL.indexOf("create table if not exists project_licenses");
-    const end = SCHEMA_SQL.indexOf("create table if not exists free_usage");
-    for (const statement of SCHEMA_SQL.slice(start, end).split(";")) {
-      const sql = statement.trim();
-      if (sql) await db.query(sql);
-    }
-  }
-  const freeUsage = await db.query(
-    "select 1 from information_schema.tables where table_name = 'free_usage'",
-  );
-  if (freeUsage.rows.length === 0) {
-    const start = SCHEMA_SQL.indexOf("create table if not exists free_usage");
-    for (const statement of SCHEMA_SQL.slice(start).split(";")) {
-      const sql = statement.trim();
-      if (sql) await db.query(sql);
-    }
+
+  const done = await applied(db);
+  for (const migration of MIGRATIONS) {
+    if (done.has(migration.id)) continue;
+    await run(db, migration);
+    await record(db, migration.id);
   }
 }
 
