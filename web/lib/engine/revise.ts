@@ -100,6 +100,10 @@ function deriveSpecs(model: ParametricModel): LeveledSpec[] {
   return model.rooms
     .filter((r) => r.kind !== "hallway")
     .map((r) => ({
+      // The key comes back with the room. Dropping it here is what made every
+      // revision hand back a storey of strangers: the same kitchen, renamed,
+      // so no diff could pair it with itself and no approval could survive it.
+      key: r.key,
       kind: r.kind,
       label: r.label,
       areaSqft: Math.round(r.rect[2] * r.rect[3]),

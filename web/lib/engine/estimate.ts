@@ -15,6 +15,8 @@ import type {
   ValueEngineeringSuggestion,
 } from "../types";
 import { applyRevision } from "./revise";
+import { openingAreaByWall } from "./openings";
+import { allWalls, wallQuantities } from "./walls";
 import { buildRoof, footprintSqft, grossFloorSqft } from "./roofgeom";
 import {
   APPLIANCES,
@@ -72,7 +74,13 @@ interface Quantities {
   livableSqft: number;
   garageSqft: number;
   outdoorSqft: number;
+  /** Centreline length of every wall in the building, each counted once. */
   wallLf: number;
+  /** Outside wall face, gross and net of its openings. */
+  exteriorWallGrossSqft: number;
+  exteriorWallNetSqft: number;
+  /** Partition face, both sides, net of doorways. */
+  interiorWallNetSqft: number;
   doors: number;
   windows: number;
   baths: number;
@@ -84,14 +92,11 @@ export function takeoff(model: ParametricModel, styleKey?: HomeStyle): Quantitie
   let livableSqft = 0;
   let garageSqft = 0;
   let outdoorSqft = 0;
-  let wallLf = 0;
   let baths = 0;
   let kitchens = 0;
 
   for (const r of model.rooms) {
     const a = r.rect[2] * r.rect[3];
-    const perimeter = 2 * (r.rect[2] + r.rect[3]);
-    wallLf += perimeter / 2; // shared-wall discount
     if (r.kind === "garage") garageSqft += a;
     else if (r.kind === "outdoor") outdoorSqft += a;
     else livableSqft += a;
@@ -115,6 +120,31 @@ export function takeoff(model: ParametricModel, styleKey?: HomeStyle): Quantitie
   // residential plans run at.
   const roof = buildRoof(model, styleKey);
 
+  // Walls are measured off the wall graph rather than guessed from room
+  // perimeters. "Half of every room's perimeter" counted a shared wall once —
+  // correct — and an outside wall once too, which is only half of it, and it
+  // could not tell siding from drywall, so an interior partition was being
+  // priced as clad exterior wall.
+  const openings = openingAreaByWall(model);
+  const walls = allWalls(model);
+  const quantities = wallQuantities(model, (key) => openings.get(key) ?? 0);
+  const byKey = new Map(walls.map((w) => [w.key, w]));
+  let wallLf = 0;
+  let exteriorWallGrossSqft = 0;
+  let exteriorWallNetSqft = 0;
+  let interiorWallNetSqft = 0;
+  for (const q of quantities) {
+    const wall = byKey.get(q.key)!;
+    wallLf += q.lengthFt;
+    if (wall.wallClass === "exterior") {
+      exteriorWallGrossSqft += q.grossSqft;
+      exteriorWallNetSqft += q.netSqft;
+    } else if (wall.wallClass === "interior") {
+      // A partition is boarded, taped and painted on both faces.
+      interiorWallNetSqft += q.netSqft * 2;
+    }
+  }
+
   return {
     roofSurfaceSqft: Math.round(roof.surfaceAreaSqft),
     roofCoveredSqft: Math.round(roof.coveredAreaSqft),
@@ -124,6 +154,9 @@ export function takeoff(model: ParametricModel, styleKey?: HomeStyle): Quantitie
     garageSqft: Math.round(garageSqft),
     outdoorSqft: Math.round(outdoorSqft),
     wallLf: Math.round(wallLf),
+    exteriorWallGrossSqft: Math.round(exteriorWallGrossSqft),
+    exteriorWallNetSqft: Math.round(exteriorWallNetSqft),
+    interiorWallNetSqft: Math.round(interiorWallNetSqft),
     doors: model.openings.filter((o) => o.kind === "door").length,
     windows: model.openings.filter((o) => o.kind === "window").length,
     baths,
@@ -167,7 +200,7 @@ function finishBook(finishes: EstimateFinishes): BookEntry[] {
 
   const entries: BookEntry[] = [
     { category: "Roofing", description: `Roofing — ${roofing.label}`, unit: "sqft", unitCostCents: roofing.costPerSqftCents, qty: (q) => q.roofSurfaceSqft, source: "takeoff" },
-    { category: "Exterior", description: `Siding — ${siding.label}`, unit: "sqft", unitCostCents: siding.costPerSqftCents, qty: (q) => q.wallLf * 9, source: "takeoff" },
+    { category: "Exterior", description: `Siding — ${siding.label}`, unit: "sqft", unitCostCents: siding.costPerSqftCents, qty: (q) => q.exteriorWallNetSqft, source: "takeoff" },
     { category: "Windows & Doors", description: `Windows — ${windows.label}`, unit: "ea", unitCostCents: windows.costCents, qty: (q) => q.windows, source: "takeoff" },
     { category: "Flooring", description: flooring.label, unit: "sqft", unitCostCents: flooring.costPerSqftCents, qty: (q) => q.livableSqft, source: "allowance" },
     { category: "Kitchen", description: `Cabinets — ${cabinets.label}`, unit: "ea", unitCostCents: cabinets.costCents, qty: (q) => q.kitchens, source: "allowance" },

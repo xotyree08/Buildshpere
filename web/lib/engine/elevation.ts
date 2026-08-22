@@ -8,6 +8,7 @@
 
 import type { HomeStyle, ParametricModel } from "../types";
 import { exteriorRuns } from "./adjacency";
+import { DOOR_HEAD_FT, GARAGE_DOOR_HEAD_FT, WINDOW_HEAD_FT, WINDOW_SILL_FT } from "./openings";
 import { WALL_HEIGHT_FT } from "./iso";
 import { buildRoof } from "./roofgeom";
 
@@ -35,10 +36,12 @@ export interface Elevation {
   height: number;
 }
 
-const WINDOW_SILL = 3;
-const WINDOW_HEAD = 7;
-const DOOR_HEAD = 6.8;
-const GARAGE_DOOR_HEAD = 7.5;
+// One definition, in ./openings — these were written out here, in the 3-D
+// scene, and nowhere in the estimate.
+const WINDOW_SILL = WINDOW_SILL_FT;
+const WINDOW_HEAD = WINDOW_HEAD_FT;
+const DOOR_HEAD = DOOR_HEAD_FT;
+const GARAGE_DOOR_HEAD = GARAGE_DOOR_HEAD_FT;
 
 /** Extent of a level's habitable+garage rooms along the view axis. */
 function levelExtent(model: ParametricModel, level: number, axis: 0 | 1): [number, number] | null {

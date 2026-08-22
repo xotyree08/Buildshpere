@@ -101,3 +101,42 @@ The production domain is **onbuildsphere.com** (founder decision,
 No code hardcodes the domain for request handling (share links use the
 request origin; the API base is injected at build time), so staging
 deployments keep working unchanged.
+
+## ADR-012: The building graph is the source of truth, and it grows from walls — accepted
+
+The engineering handoff's first principle is one canonical building that every
+drawing, quantity, price and render is derived from, and its first two
+non-negotiables are that every object has a persistent identifier and that
+walls are objects with assemblies rather than an inference each renderer makes.
+Neither held: object keys were packing order, so a revision renamed every room
+in the house, and walls existed only inside whichever renderer needed one — the
+estimate priced "half of every room's perimeter" and called the halving a
+shared-wall discount.
+
+Three things change, in this order, because each depends on the one before.
+
+**Identity is minted from what an object is**, not from where it landed:
+`R-L1-KITCHEN-01`. Keys are assigned once, before any geometry is computed, and
+carried through a revision on the room programme — so the same kitchen is the
+same kitchen across a repack. Version diffs, change propagation and
+version-scoped professional approval all need this and none of them could have
+it before.
+
+**Walls are one object between two things**, keyed by what they separate, so a
+wall's identity inherits the stability of the rooms either side of it. They are
+derived from the room graph rather than stored: derived means they cannot drift
+out of step with the plan, and the keys will line up unchanged on the day walls
+become independently editable, which is what will require storing them.
+
+**Quantities are measured off those walls.** Siding is priced on outside wall
+net of its openings rather than on every partition in the house — the old figure
+ordered 3,161 sqft of cladding for a house with 1,509 sqft of outside wall — and
+framing counts each wall once rather than halving all of them. Concept totals
+moved less than 2.5%, because the two errors had been cancelling.
+
+The stack stays TypeScript. Nothing in the handoff's hierarchy requires Python;
+the language recommendation is separable from the architecture, and a live
+product with auth, payments and CI is not worth stopping to rewrite. A Python
+service earns its place at the IFC increment, where IfcOpenShell is genuinely
+the tool for the job.
+

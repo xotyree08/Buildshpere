@@ -9,6 +9,7 @@
 import type { FinishSelections } from "../catalog/materials";
 import { defaultSchemeFor, furnitureForModel, schemeByKey, type FurnitureItem, type InteriorScheme } from "../engine/interiors";
 import { exteriorRuns } from "../engine/adjacency";
+import { DOOR_HEAD_FT, WINDOW_HEAD_FT, WINDOW_SILL_FT } from "../engine/openings";
 import { buildRoof, roofFacets, roofPeakFt, type RoofGeometry } from "../engine/roofgeom";
 import { WALL_HEIGHT_FT } from "../engine/iso";
 import type { HomeStyle, ParametricModel, Room } from "../types";
@@ -16,9 +17,9 @@ import { exteriorPalette, shade } from "./palette";
 
 const WALL_T = 0.4;
 const FLOOR_T = 0.4;
-const WINDOW_SILL = 3;
-const WINDOW_HEAD = 7;
-const DOOR_HEAD = 6.8;
+const WINDOW_SILL = WINDOW_SILL_FT;
+const WINDOW_HEAD = WINDOW_HEAD_FT;
+const DOOR_HEAD = DOOR_HEAD_FT;
 const RAIL_H = 3;
 const ROOF_OVERHANG = 1.2;
 

@@ -77,25 +77,35 @@ export const WALL_SIDES: WallSide[] = ["n", "s", "e", "w"];
 /** How long a run of wall has to be before anything is worth putting in it. */
 export const MIN_OPENING_RUN_FT = 4;
 
+/** A stretch of one face, in the face's own coordinate from its start. */
+export interface FaceRun {
+  from: number;
+  to: number;
+  /** Key of the room behind this stretch, or null where it faces outdoors. */
+  neighbour: string | null;
+}
+
 /**
- * The stretches of one wall of a room that face outdoors.
+ * One wall of a room, cut into the stretches that face something different.
  *
  * Every renderer and every drawing needs this and none of them had it. The
  * generator put a window on each room's north wall on the theory that north
  * was the street — true of the front row and of nothing else, so a plan came
  * back with windows buried in the middle of the house and blank walls facing
  * the garden. Measured against the rooms actually next to it, a wall knows
- * which parts of itself are outside.
+ * which parts of itself are outside and which room is behind each of the rest.
  *
- * Returned runs are in the wall's own coordinate: along x for the north and
- * south faces, along z for east and west.
+ * Runs are in the wall's own coordinate — along x for the north and south
+ * faces, along z for east and west — and they tile the whole face, in order,
+ * with no gaps. `neighbour` is the key of the room on the other side, or null
+ * where that side is outdoors.
  */
-export function exteriorRuns(
+export function faceRuns(
   room: Room,
   others: readonly Room[],
   side: WallSide,
   toleranceFt = ADJACENCY_TOLERANCE_FT,
-): { from: number; to: number }[] {
+): FaceRun[] {
   const [x, z, w, d] = room.rect;
   const alongX = side === "n" || side === "s";
   const start = alongX ? x : z;
@@ -103,8 +113,8 @@ export function exteriorRuns(
   const face = side === "n" ? z : side === "s" ? z + d : side === "w" ? x : x + w;
 
   // Anything on the far side of this face, close enough to be the other half
-  // of the same wall, takes its overlap out of the run.
-  const blocked: [number, number][] = [];
+  // of the same wall, claims its overlap.
+  const claims: { from: number; to: number; key: string }[] = [];
   for (const other of others) {
     if (other.key === room.key || other.level !== room.level) continue;
     const [ox, oz, ow, od] = other.rect;
@@ -116,19 +126,45 @@ export function exteriorRuns(
     if (!against) continue;
     const from = alongX ? Math.max(start, ox) : Math.max(start, oz);
     const to = alongX ? Math.min(end, ox + ow) : Math.min(end, oz + od);
-    if (to > from) blocked.push([from, to]);
+    if (to > from) claims.push({ from, to, key: other.key });
   }
 
-  blocked.sort((a, b) => a[0] - b[0]);
-  const runs: { from: number; to: number }[] = [];
+  claims.sort((a, b) => a.from - b.from || a.key.localeCompare(b.key));
+  const runs: FaceRun[] = [];
   let cursor = start;
-  for (const [from, to] of blocked) {
-    if (from > cursor) runs.push({ from: cursor, to: from });
-    cursor = Math.max(cursor, to);
+  for (const claim of claims) {
+    // The gap between two neighbours along this face is the end of the
+    // partition standing between THEM — half a foot of wall, not half a foot
+    // of outdoors. Reporting it as outdoors broke the wall graph into slivers
+    // and gave one hallway three separate "outside" walls, each six inches
+    // long, between the rooms it serves.
+    const gap = claim.from - cursor;
+    if (gap > toleranceFt) runs.push({ from: cursor - start, to: claim.from - start, neighbour: null });
+    const from = gap > toleranceFt ? claim.from : Math.min(cursor, claim.from);
+    if (claim.to > cursor) {
+      runs.push({ from: from - start, to: claim.to - start, neighbour: claim.key });
+      cursor = claim.to;
+    }
   }
-  if (cursor < end) runs.push({ from: cursor, to: end });
-  // In the room's own coordinate, which is what an opening's offset is in.
-  return runs
-    .filter((run) => run.to - run.from >= MIN_OPENING_RUN_FT)
-    .map((run) => ({ from: run.from - start, to: run.to - start }));
+  if (end - cursor > toleranceFt) runs.push({ from: cursor - start, to: end - start, neighbour: null });
+  else if (runs.length > 0 && cursor < end) runs[runs.length - 1].to = end - start;
+  return runs;
+}
+
+/**
+ * The stretches of one wall of a room that face outdoors.
+ *
+ * One definition, filtered: the outdoors is simply the part of a face with no
+ * room behind it. Keeping a second traversal here is how two engines end up
+ * disagreeing about where a wall is.
+ */
+export function exteriorRuns(
+  room: Room,
+  others: readonly Room[],
+  side: WallSide,
+  toleranceFt = ADJACENCY_TOLERANCE_FT,
+): { from: number; to: number }[] {
+  return faceRuns(room, others, side, toleranceFt)
+    .filter((run) => run.neighbour === null && run.to - run.from >= MIN_OPENING_RUN_FT)
+    .map((run) => ({ from: run.from, to: run.to }));
 }

@@ -22,6 +22,7 @@ import type {
 import { conceptName, styleInfo, type MassingKey } from "../catalog/styles";
 import { massingBias, PORCH_STYLES } from "./roof";
 import { exteriorRuns, MIN_OPENING_RUN_FT, sharedWall, WALL_FT, WALL_SIDES, type WallSide } from "./adjacency";
+import { ordinals, roomKey } from "./ids";
 import { distortion, itemArea, tile, type TileItem } from "./tile";
 
 export interface RoomSpec {
@@ -38,6 +39,13 @@ export interface RoomSpec {
    * so nothing can be placed between its rooms.
    */
   suite?: string;
+  /**
+   * Identity, carried from wherever this room came from. A revision re-packs
+   * the storey, so a key minted during packing changes every time the geometry
+   * is recomputed and nothing downstream can say this is the same kitchen as
+   * before. Specs that already have one keep it; the rest are named here once.
+   */
+  key?: string;
   /**
    * Narrowest this room can be, when what has to fit in it is not implied by
    * its kind. Two cars park side by side or they do not park: the width
@@ -345,9 +353,9 @@ function halve(specs: RoomSpec[]): RoomSpec[][] {
  * house on an eighty-five-foot lot — and every attempt to claw that back cost
  * a room its proportions.
  */
-function packLevel(specs: RoomSpec[], level: number, maxRowWidthFt: number, startKey: number): Room[] {
+function packLevel(specs: RoomSpec[], level: number, maxRowWidthFt: number): Room[] {
   const rooms: Room[] = [];
-  let key = startKey;
+  let halls = 0;
   if (specs.length === 0) return rooms;
 
   // Outdoor rooms are not tiled with the interior. A porch belongs across the
@@ -368,7 +376,7 @@ function packLevel(specs: RoomSpec[], level: number, maxRowWidthFt: number, star
   const width = Math.max(MIN_ROOM_FT * 2, maxRowWidthFt);
   const emit = (spec: RoomSpec, rect: [number, number, number, number]) => {
     rooms.push({
-      key: `r${key++}`,
+      key: spec.key!,
       kind: spec.kind,
       label: spec.label,
       level,
@@ -479,7 +487,7 @@ function packLevel(specs: RoomSpec[], level: number, maxRowWidthFt: number, star
     // the end rather than through the middle.
     if (index + 1 < zones.length || zones.length === 1) {
       rooms.push({
-        key: `r${key++}`,
+        key: roomKey(level, "hallway", ++halls),
         kind: "hallway",
         label: level === 0 ? "Hall" : `Hall L${level + 1}`,
         level,
@@ -701,6 +709,15 @@ function addOpenings(model: ParametricModel): void {
  * program flows through exactly the same layout rules.
  */
 export function assembleModel(levelSpecs: RoomSpec[][], maxRowWidthFt: number): ParametricModel {
+  // Identity is settled before any geometry is computed, and once — the width
+  // search below packs the storey seven times, and keys minted during packing
+  // would differ between candidates as well as between revisions.
+  const next = ordinals();
+  for (const [level, specs] of levelSpecs.entries()) {
+    for (const spec of specs) {
+      if (!spec.key) spec.key = roomKey(level, spec.kind, next(`${level}:${spec.kind}`));
+    }
+  }
   // The footprint is chosen, not inherited. Taking the full width the lot
   // allows is what put a bedroom at 30.6ft x 4.9ft on a 75ft lot: a wide,
   // shallow storey gives every full-depth room the storey's depth, and on a
@@ -718,12 +735,7 @@ export function assembleModel(levelSpecs: RoomSpec[][], maxRowWidthFt: number): 
   }
   const packAll = (width: number): Room[] => {
     const out: Room[] = [];
-    let key = 0;
-    levelSpecs.forEach((specs, level) => {
-      const packed = packLevel(specs, level, width, key);
-      key += packed.length;
-      out.push(...packed);
-    });
+    levelSpecs.forEach((specs, level) => out.push(...packLevel(specs, level, width)));
     return out;
   };
   const cost = (packed: Room[]): number => {
