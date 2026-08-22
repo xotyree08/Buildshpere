@@ -17,6 +17,27 @@ export const WINDOW_HEAD_FT = 7;
 export const DOOR_HEAD_FT = 6.8;
 export const GARAGE_DOOR_HEAD_FT = 7.5;
 
+/**
+ * Where an opening sits along its wall.
+ *
+ * `offsetFt` is the opening's LEFT EDGE measured from the room's origin
+ * corner along the named face — that is what the generator writes and what it
+ * consumes free wall run against. It was read as a centre in the elevations,
+ * the floor plan, the editable plan, the interior view and the edit clamp, so
+ * every opening in those five drawings sat half its own width too far along
+ * the wall: a sixteen-foot garage door hung eight feet off the corner of the
+ * building. Read the span through here rather than open-coding the arithmetic
+ * again.
+ */
+export function openingSpan(opening: Opening): { from: number; to: number } {
+  return { from: opening.offsetFt, to: opening.offsetFt + opening.widthFt };
+}
+
+/** The centre of an opening along its wall. */
+export function openingMid(opening: Opening): number {
+  return opening.offsetFt + opening.widthFt / 2;
+}
+
 /** Sill and head of an opening, above its own storey's floor. */
 export function openingHeights(opening: Opening, room: Room): { sillFt: number; headFt: number } {
   if (opening.kind === "window") return { sillFt: WINDOW_SILL_FT, headFt: WINDOW_HEAD_FT };
@@ -43,7 +64,7 @@ export function hostWallKey(model: ParametricModel, opening: Opening): string | 
   const room = model.rooms.find((r) => r.key === opening.roomKey);
   if (!room) return null;
   const rooms = model.rooms.filter((r) => r.level === room.level);
-  const mid = opening.offsetFt + opening.widthFt / 2;
+  const mid = openingMid(opening);
   for (const run of faceRuns(room, rooms, opening.wall as WallSide)) {
     if (mid < run.from - 0.01 || mid > run.to + 0.01) continue;
     return wallKey(room.level, room.key, run.neighbour ?? (opening.wall as WallSide));

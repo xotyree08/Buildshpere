@@ -72,10 +72,10 @@ export function FloorPlan({
           const room = rooms.find((r) => r.key === o.roomKey)!;
           const [x, y, w, d] = room.rect;
           let ox = x, oy = y, ow = o.widthFt, oh = 0.6;
-          if (o.wall === "n") { ox = x + o.offsetFt - o.widthFt / 2; oy = y - 0.3; }
-          if (o.wall === "s") { ox = x + o.offsetFt - o.widthFt / 2; oy = y + d - 0.3; }
-          if (o.wall === "e") { ox = x + w - 0.3; oy = y + o.offsetFt - o.widthFt / 2; ow = 0.6; oh = o.widthFt; }
-          if (o.wall === "w") { ox = x - 0.3; oy = y + o.offsetFt - o.widthFt / 2; ow = 0.6; oh = o.widthFt; }
+          if (o.wall === "n") { ox = x + o.offsetFt; oy = y - 0.3; }
+          if (o.wall === "s") { ox = x + o.offsetFt; oy = y + d - 0.3; }
+          if (o.wall === "e") { ox = x + w - 0.3; oy = y + o.offsetFt; ow = 0.6; oh = o.widthFt; }
+          if (o.wall === "w") { ox = x - 0.3; oy = y + o.offsetFt; ow = 0.6; oh = o.widthFt; }
           return (
             <rect
               key={o.key}

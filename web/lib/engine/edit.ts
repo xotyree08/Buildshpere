@@ -109,8 +109,10 @@ function reseatOpenings(
       dropped += 1;
       return [];
     }
-    const half = o.widthFt / 2;
-    const clamped = Math.min(Math.max(o.offsetFt, half), wallLength - half);
+    // offsetFt is a left edge, so the last legal position is one width in
+    // from the far corner — clamping to half-widths let an opening's far half
+    // slide past the end of its wall.
+    const clamped = Math.min(Math.max(o.offsetFt, 0), wallLength - o.widthFt);
     return [{ ...o, offsetFt: snap(clamped) }];
   });
   return { openings, dropped };

@@ -115,7 +115,9 @@ export function ElevationView({
           y={o.y}
           width={o.w}
           height={o.h}
-          fill={o.kind === "window" ? palette.glass : palette.door}
+          fill={
+            o.kind === "window" ? palette.glass : o.kind === "garage" ? palette.garageDoor : palette.door
+          }
           stroke="var(--fg)"
           strokeWidth={0.2}
         />

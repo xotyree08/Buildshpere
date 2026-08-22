@@ -1,3 +1,4 @@
+import { openingMid } from "@/lib/engine/openings";
 import type { TourStop } from "@/lib/engine/walkthrough";
 
 const WALL_H = 9;
@@ -45,7 +46,7 @@ export function RoomView({ stop }: { stop: TourStop }) {
       <rect x={bx} y={by} width={backW} height={backH} fill="var(--card)" stroke="var(--fg)" strokeWidth={0.08} />
       {/* the room's actual north windows, scaled onto the back wall */}
       {northWindows.map((win, i) => {
-        const cx = bx + (Math.min(win.offsetFt, w) / w) * backW;
+        const cx = bx + (Math.min(openingMid(win), w) / w) * backW;
         const winW = (win.widthFt / w) * backW;
         const sill = by + backH * 0.28;
         const height = backH * 0.42;
